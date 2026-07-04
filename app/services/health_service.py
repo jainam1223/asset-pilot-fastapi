@@ -24,7 +24,6 @@ class DependencyCheck:
 class ReadinessResult:
     status: str  # "ok" | "degraded"
     database: DependencyCheck
-    redis: DependencyCheck
 
     @property
     def is_healthy(self) -> bool:
@@ -47,9 +46,6 @@ class HealthService:
         return DependencyCheck(status="ok", latency_ms=latency_ms, error=None)
 
     async def check_readiness(self) -> ReadinessResult:
-        database, redis_check = await asyncio.gather(
-            self._timed_check(self.health_repository.check_database()),
-            self._timed_check(self.health_repository.check_cache()),
-        )
-        overall = "ok" if database.status == "ok" and redis_check.status == "ok" else "degraded"
-        return ReadinessResult(status=overall, database=database, redis=redis_check)
+        database = await self._timed_check(self.health_repository.check_database())
+        overall = "ok" if database.status == "ok" else "degraded"
+        return ReadinessResult(status=overall, database=database)

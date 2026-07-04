@@ -6,11 +6,11 @@ import pytest
 
 @pytest.fixture
 async def async_client() -> AsyncGenerator[httpx.AsyncClient, None]:
-    """In-process client against the real app. Connections to Postgres/
-    Redis are lazy, so this is safe to use even for routes with no live
-    dependencies (e.g. 404s); routes that DO touch Postgres/Redis
-    (`/health/ready`, `/api/v1/ping`) require the docker-compose stack to
-    be up, which is why those live in `tests/integration/`.
+    """In-process client against the real app. The Postgres connection is
+    lazy, so this is safe to use even for routes with no live dependencies
+    (e.g. 404s); routes that DO touch Postgres (`/health/ready`) require
+    the docker-compose stack to be up, which is why those live in
+    `tests/integration/`.
     """
     from app.main import app
 

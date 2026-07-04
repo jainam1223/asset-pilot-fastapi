@@ -1,7 +1,7 @@
 """Asserts the standard envelope shape for a success case, a 404 case, and
 a validation-error case. Uses a throwaway FastAPI app wired with the same
 `register_exception_handlers` the real app uses, so these tests exercise
-the actual handler code without needing Postgres/Redis to be reachable.
+the actual handler code without needing Postgres to be reachable.
 """
 
 from collections.abc import AsyncGenerator

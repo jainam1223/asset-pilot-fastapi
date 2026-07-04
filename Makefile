@@ -61,10 +61,6 @@ logs: ## Tail logs for all services
 logs-api: ## Tail logs for the api service
 	$(COMPOSE) logs -f api
 
-.PHONY: logs-redis
-logs-redis: ## Tail logs for the redis service
-	$(COMPOSE) logs -f redis
-
 # ---- Shell access ----
 
 .PHONY: shell-api
@@ -74,10 +70,6 @@ shell-api: ## Exec into the running api container's shell
 .PHONY: shell-db
 shell-db: ## psql using DATABASE_URL from .env (runs natively on the host)
 	@psql "$$(grep '^DATABASE_URL=' $(HOST_ENV_FILE) | cut -d= -f2- | sed -e 's/postgresql+asyncpg/postgresql/')"
-
-.PHONY: shell-redis
-shell-redis: ## redis-cli into the redis container
-	$(COMPOSE) exec redis redis-cli
 
 # ---- Database / migrations ----
 
@@ -121,7 +113,7 @@ test-unit: ## Run unit tests only
 	$(API) pytest tests/unit -m unit
 
 .PHONY: test-integration
-test-integration: ## Run integration tests only (needs Postgres reachable + redis up)
+test-integration: ## Run integration tests only (needs Postgres reachable)
 	$(API) pytest tests/integration -m integration
 
 .PHONY: coverage

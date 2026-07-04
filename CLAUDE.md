@@ -6,13 +6,12 @@ Guidance for Claude Code sessions working on this repo. **Read this + `_docs/IMP
 
 Backend for **AssetPilot**, an internal **IT Asset Management (ITAM)** platform. It manages the full device lifecycle — inventory → request → approval → assignment → optional WFH shipping → support/repair → peer handover → return → retirement — with a permanent append-only per-device audit trail. The scaffold is designed to later host two more modules (Ticket Management, AI Chatbot); **only the ITAM module is being built now, and only its IT-Admin API surface** (`_docs/IT_ADMIN_API_FLOW.md`). Employee/Manager actions exist as seed data, not endpoints.
 
-**Current state:** infrastructure is complete; domain code is NOT. `app/models/` is empty and the only migration (`alembic/versions/cde138860334_baseline.py`) creates zero tables. The `ping` router/service/schema is a throwaway reference slice — copy its pattern, then it can be deleted once real features land.
+**Current state:** infrastructure is complete; domain code is NOT. `app/models/` is empty and the only migration (`alembic/versions/cde138860334_baseline.py`) creates zero tables. The throwaway `ping` reference slice (and the unused Redis cache layer it demonstrated) has been removed — copy the `health` vertical slice's router → service → repository pattern instead.
 
 ## 2. Tech stack (pinned in `pyproject.toml`)
 
 - **Python ≥3.12**, **FastAPI 0.139.0**, Starlette 1.3.1, uvicorn 0.50.0 (gunicorn in prod)
 - **PostgreSQL 17** via **SQLAlchemy[asyncio] 2.0.51** + **asyncpg 0.31.0**; **Alembic 1.18.5** (async)
-- **Redis 8.0.1** (`redis.asyncio`) for cache
 - **Pydantic 2.13.4** + **pydantic-settings 2.14.2**
 - **Auth:** **PyJWT 2.13.0** (HS256, access+refresh) + **bcrypt 5.0.0** — NOT python-jose/passlib
 - **structlog 26.1.0** (JSON in prod, console in dev)
@@ -23,7 +22,7 @@ Backend for **AssetPilot**, an internal **IT Asset Management (ITAM)** platform.
 **Strict 3-layer, layer-based (NOT feature-based):** `router → service → repository`.
 - **API/router** (`app/api/v1/routers/`): HTTP only. Imports DI aliases from `dependencies.py`; never constructs a session/repo/service; never touches ORM models.
 - **Service** (`app/services/`): business logic; no HTTP awareness; raises `AppException` subclasses; returns plain `@dataclass` results.
-- **Repository** (`app/repositories/`): the ONLY layer that touches the SQLAlchemy session / Redis.
+- **Repository** (`app/repositories/`): the ONLY layer that touches the SQLAlchemy session.
 
 ```
 app/
@@ -33,9 +32,8 @@ app/
       dependencies.py      # ALL DI wiring (Annotated aliases) — one file
       routers/
         __init__.py        # api_v1_router aggregator (include_router each sub-router)
-        ping.py            # reference vertical slice
   core/    config.py  security.py  logging.py  exceptions.py
-  db/      base.py (Base + UUIDPrimaryKeyMixin + TimestampMixin)  session.py  redis.py
+  db/      base.py (Base + UUIDPrimaryKeyMixin + TimestampMixin)  session.py
   models/                  # SQLAlchemy models  ← EMPTY; build domain models here
   schemas/                 # Pydantic request/response DTOs
   services/                # business logic
@@ -62,7 +60,7 @@ Most targets run inside the `api` container via `docker compose exec`. **DB/migr
 - `make create-db` (create target DB) · `make migrate` (upgrade head) · `make makemigrations message="..."` · `make migrate-down` (rollback one) · `make db-reset` (destructive local reset) — **all native/host, not the container**
 - `make test` · `make test-unit` (`-m unit`) · `make test-integration` (`-m integration` — runs **inside the container**; needs local Postgres reachable from the Docker bridge, see §7) · `make coverage`
 - `make lint` (ruff check + `mypy app tests`) · `make format` (ruff format + `--fix`) · `make pre-commit`
-- `make health` (curls `/health/ready`) · `make shell-api` (container) / `make shell-db` (host, psql) / `make shell-redis` (container)
+- `make health` (curls `/health/ready`) · `make shell-api` (container) / `make shell-db` (host, psql)
 - **Seed:** `scripts/seed.py` + a `make seed` target are added in Module M3.
 
 ## 5. Coding conventions (cite the reference slice)
@@ -79,7 +77,7 @@ Most targets run inside the `api` container via `docker compose exec`. **DB/migr
 - **Service** returns dataclasses, no HTTP types (`app/services/ping_service.py` uses `@dataclass PingResult`). Raise domain exceptions from here only.
 - **Exceptions** (`app/core/exceptions.py`): raise `NotFoundException`(404), `ConflictException`(409), `ValidationException`(422), `UnauthorizedException`(401), `ForbiddenException`(403). Global handlers in `app/main.py` translate them. **Convention for state guards:** wrong entity state for an action → `ConflictException`(409); malformed input → `ValidationException`(422).
 - **Repository** subclasses `SQLAlchemyRepository[Model]`, sets `model = X`, adds query methods. `create()` does `add`+`flush`+`refresh` and **never commits** — `get_db_session` commits on clean return, rolls back on exception. Never commit inside a repository/service.
-- **DI** (`app/api/v1/dependencies.py`): add a `get_<x>_service(dep: Dep) -> XService` factory + `XServiceDep = Annotated[XService, Depends(get_x_service)]`. Infra aliases already exist: `DbSession`, `RedisClient`, `CurrentUser`.
+- **DI** (`app/api/v1/dependencies.py`): add a `get_<x>_service(dep: Dep) -> XService` factory + `XServiceDep = Annotated[XService, Depends(get_x_service)]`. Infra aliases already exist: `DbSession`, `CurrentUser`.
 - **Models:** subclass `Base` (`app/db/base.py`), use `UUIDPrimaryKeyMixin` + `TimestampMixin`. snake_case columns matching `_docs/db_schemas.dbml` exactly. For the `device_log.metadata` JSONB column, use a differently-named Python attribute (SQLAlchemy reserves `metadata`).
 - **Naming:** router prefixes exactly as in `IT_ADMIN_API_FLOW.md` (`/admin/...`), all under `settings.API_V1_PREFIX` (`/api/v1`).
 
@@ -111,7 +109,7 @@ Most targets run inside the `api` container via `docker compose exec`. **DB/migr
 
 ## 8. Things NOT to do
 
-- Don't put DB/ORM/Redis access in routers or services — repositories only.
+- Don't put DB/ORM access in routers or services — repositories only.
 - Don't `commit()` in a repository or service — the session dependency owns the transaction.
 - Don't build a response dict by hand — always use `success_response`/`error_response`.
 - Don't raise `HTTPException` for domain errors — raise `AppException` subclasses from the service layer.

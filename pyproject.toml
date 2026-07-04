@@ -14,7 +14,6 @@ dependencies = [
     "pydantic-settings==2.14.2",
     "pyjwt[crypto]==2.13.0",
     "python-multipart==0.0.32",
-    "redis==8.0.1",
     "sqlalchemy[asyncio]==2.0.51",
     "structlog==26.1.0",
     "uvicorn[standard]==0.50.0",
@@ -34,18 +33,18 @@ dev = [
 [tool.pytest.ini_options]
 cache_dir = "/tmp/.pytest_cache"
 asyncio_mode = "auto"
-# The app's DB engine / Redis pool are module-level singletons created
-# once at import time (matching production, where they live for the
-# process lifetime) — a session-scoped loop keeps every test on the same
-# event loop those singletons were created on. Per-test loops (the
-# pytest-asyncio default) would otherwise break them on the 2nd test with
+# The app's DB engine is a module-level singleton created once at import
+# time (matching production, where it lives for the process lifetime) —
+# a session-scoped loop keeps every test on the same event loop that
+# singleton was created on. Per-test loops (the pytest-asyncio default)
+# would otherwise break it on the 2nd test with
 # "RuntimeError: Event loop is closed".
 asyncio_default_fixture_loop_scope = "session"
 asyncio_default_test_loop_scope = "session"
 testpaths = ["tests"]
 markers = [
     "unit: fast tests with no external dependencies",
-    "integration: tests requiring live Postgres/Redis (docker-compose)",
+    "integration: tests requiring live Postgres (docker-compose)",
 ]
 
 [tool.ruff]
