@@ -1,0 +1,34 @@
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.15.20
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  # A local hook (not mirrors-mypy) so mypy runs inside our own uv-managed
+  # venv, where FastAPI/SQLAlchemy/etc. are actually installed. The
+  # mirrors-mypy hook runs in its own isolated env with only whatever's
+  # listed in `additional_dependencies` — every runtime dep would need to
+  # be duplicated there, and drift silently, to avoid everything resolving
+  # to `Any`.
+  - repo: local
+    hooks:
+      - id: mypy
+        name: mypy
+        entry: uv run mypy app tests
+        language: system
+        types: [python]
+        pass_filenames: false
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-added-large-files
+        args: [--maxkb=1000]
+      - id: detect-private-key
