@@ -33,11 +33,6 @@ async def readiness(health_service: HealthServiceDep) -> JSONResponse:
                 latency_ms=result.database.latency_ms,
                 error=result.database.error,
             ),
-            "redis": DependencyCheckSchema(
-                status=result.redis.status,
-                latency_ms=result.redis.latency_ms,
-                error=result.redis.error,
-            ),
         },
     )
     return JSONResponse(status_code=200 if result.is_healthy else 503, content=schema.model_dump())

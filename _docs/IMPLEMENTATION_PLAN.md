@@ -6,7 +6,7 @@
 
 **Product:** Internal IT Asset Management (ITAM) MVP — device lifecycle: inventory → request → approval → assignment → optional WFH shipping → support/repair → peer handover → return → retirement, with a permanent append-only per-device audit trail. **This plan builds the IT-Admin API surface only** (per `IT_ADMIN_API_FLOW.md`); employee/manager actions exist only as seed data.
 
-**Stack (pinned, from `pyproject.toml`):** Python ≥3.12, FastAPI 0.139.0, Starlette 1.3.1, uvicorn 0.50.0, SQLAlchemy[asyncio] 2.0.51, asyncpg 0.31.0, Alembic 1.18.5, Pydantic 2.13.4, pydantic-settings 2.14.2, redis 8.0.1, PyJWT[crypto] 2.13.0, bcrypt 5.0.0, structlog 26.1.0. DB = PostgreSQL 17. Pkg mgr = `uv`. Lint = ruff (line 110), types = mypy strict, tests = pytest + pytest-asyncio (`asyncio_mode=auto`).
+**Stack (pinned, from `pyproject.toml`):** Python ≥3.12, FastAPI 0.139.0, Starlette 1.3.1, uvicorn 0.50.0, SQLAlchemy[asyncio] 2.0.51, asyncpg 0.31.0, Alembic 1.18.5, Pydantic 2.13.4, pydantic-settings 2.14.2, PyJWT[crypto] 2.13.0, bcrypt 5.0.0, structlog 26.1.0. DB = PostgreSQL 17. Pkg mgr = `uv`. Lint = ruff (line 110), types = mypy strict, tests = pytest + pytest-asyncio (`asyncio_mode=auto`).
 
 **Existing structure (layer-based, strict 3-layer):**
 ```
@@ -15,11 +15,11 @@ app/
   api/v1/dependencies.py  # ALL DI wiring (Annotated aliases)
   api/health.py       # /health/live, /health/ready (outside /api/v1)
   core/               # config.py, security.py, logging.py, exceptions.py
-  db/                 # base.py (Base + UUIDPrimaryKeyMixin + TimestampMixin), session.py, redis.py
+  db/                 # base.py (Base + UUIDPrimaryKeyMixin + TimestampMixin), session.py
   models/             # SQLAlchemy models (EMPTY — build here)
   schemas/            # Pydantic DTOs
   services/           # business logic; raises AppException; returns dataclasses (no HTTP)
-  repositories/       # ONLY layer touching ORM session / Redis; base.py has SQLAlchemyRepository[Model]
+  repositories/       # ONLY layer touching the ORM session; base.py has SQLAlchemyRepository[Model]
   utils/              # response.py (envelope), pagination.py, request_context.py
   main.py             # create_app() factory
 alembic/versions/     # migrations (only empty baseline exists)
@@ -27,7 +27,7 @@ tests/{unit,integration}/
 ```
 
 **Conventions to follow (non-negotiable):**
-- **Layering:** router → service → repository. Routers import DI aliases from `dependencies.py`. Services raise `AppException` subclasses and return plain dataclasses. Only repositories touch the session/Redis.
+- **Layering:** router → service → repository. Routers import DI aliases from `dependencies.py`. Services raise `AppException` subclasses and return plain dataclasses. Only repositories touch the session.
 - **Models:** subclass `Base` (from `app.db.base`), use `UUIDPrimaryKeyMixin` (uuid4 PK) + `TimestampMixin` (`created_at`/`updated_at`).
 - **Repositories:** subclass `SQLAlchemyRepository[Model]`, set `model = X`, add domain queries. `create()` does `add`+`flush`+`refresh` (NO commit — `get_db_session` commits on clean exit, rolls back on exception).
 - **DI:** add `get_<x>_service(...)` factory + `XServiceDep = Annotated[XService, Depends(get_x_service)]` in `dependencies.py`. Register routers in `app/api/v1/routers/__init__.py` (`api_v1_router.include_router(...)`).
@@ -436,7 +436,7 @@ tests/{unit,integration}/
 - **Device log discipline:** EVERY device-touching write pairs with a `DeviceLogService.append(...)` in the same transaction (M4). Milestone flag comes from the M4 event→milestone map. `actor_role='system'` + `actor_id=NULL` ONLY for `support_auto_closed`.
 - **Invariants enforced by DB (M1):** one active request per item (`uq_one_active_request_per_item`), one accepted handover per item (`uq_one_active_handover_per_item`), append-only device_log (RULES). Services should still pre-check and raise friendly 409s rather than leaking IntegrityError.
 - **Transactions:** `get_db_session` commits on clean return, rolls back on exception. Repositories `flush`+`refresh`, never commit. Multi-step writes in one service method share one session/transaction.
-- **Layering:** router (DI aliases only) → service (logic, dataclasses, exceptions) → repository (only ORM/Redis). No cross-domain service imports where avoidable; when M9 needs support rows, query via repository rather than importing M10's service.
+- **Layering:** router (DI aliases only) → service (logic, dataclasses, exceptions) → repository (only ORM). No cross-domain service imports where avoidable; when M9 needs support rows, query via repository rather than importing M10's service.
 - **Validation:** Pydantic v2 schemas at the API boundary; enum fields typed with the Python enums from `app/models/enums.py`.
 - **Testing:** pytest + pytest-asyncio (`asyncio_mode=auto`); async httpx ASGI client fixture in `tests/conftest.py`. Add integration tests per module (endpoint → DB) + unit tests for tricky service logic (overlap detection, swap flow, auto-close cascade). Run `make test`, `make lint`, `make format`, mypy (strict) before marking a module Done.
 - **Email/notifications:** PROJECT mentions email on domain events; **out of scope** — where the API says "email requester" (booking-range, etc.), leave a no-op/log stub, do not build a mailer.

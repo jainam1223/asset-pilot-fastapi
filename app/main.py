@@ -23,7 +23,6 @@ from app.api.v1.routers import api_v1_router
 from app.core.config import settings
 from app.core.exceptions import AppException, ErrorCode
 from app.core.logging import configure_logging, get_logger
-from app.db.redis import redis_pool
 from app.db.session import engine
 from app.utils.request_context import (
     REQUEST_ID_HEADER,
@@ -76,7 +75,6 @@ async def lifespan(_: FastAPI) -> AsyncGenerator[None, None]:
     yield
     logger.info("app_shutdown")
     await engine.dispose()
-    await redis_pool.disconnect()
 
 
 def create_app() -> FastAPI:

@@ -69,8 +69,6 @@ python-multipart==0.0.32
     # via asset-pilot-fastapi
 pyyaml==6.0.3
     # via uvicorn
-redis==8.0.1
-    # via asset-pilot-fastapi
 sqlalchemy==2.0.51
     # via
     #   alembic

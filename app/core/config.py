@@ -1,10 +1,10 @@
 """Centralized application configuration.
 
-Every environment-specific or swappable value (DB URL, Redis URL, JWT
-secrets, CORS origins, pagination defaults, etc.) must live here and
-nowhere else. Business/data-access code reads `settings`, it never reads
-`os.environ` directly. This is what makes infra swaps (local Docker ->
-Azure managed Postgres/Redis) a pure env-var change.
+Every environment-specific or swappable value (DB URL, JWT secrets, CORS
+origins, pagination defaults, etc.) must live here and nowhere else.
+Business/data-access code reads `settings`, it never reads `os.environ`
+directly. This is what makes infra swaps (local Docker -> Azure managed
+Postgres) a pure env-var change.
 
 Only two environments exist: local development and production.
 - **Local:** values come from a single `.env` file in the repo root
@@ -20,7 +20,7 @@ Only two environments exist: local development and production.
 from enum import StrEnum
 from functools import lru_cache
 
-from pydantic import Field, PostgresDsn, RedisDsn, computed_field, model_validator
+from pydantic import Field, PostgresDsn, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -78,21 +78,11 @@ class Settings(BaseSettings):
     DATABASE_POOL_RECYCLE: int = 1800
     DATABASE_ECHO: bool = False
 
-    # --- Redis ---
-    REDIS_URL: RedisDsn | None = None
-    REDIS_HOST: str = "redis"
-    REDIS_PORT: int = 6379
-    REDIS_DB: int = 0
-    REDIS_PASSWORD: str | None = None
-    REDIS_SSL: bool = False  # true for Azure Cache for Redis (rediss://)
-    REDIS_SOCKET_TIMEOUT: float = 5.0
-    REDIS_MAX_CONNECTIONS: int = 20
-
     # --- JWT / security ---
     JWT_SECRET_KEY: str = "change-me-in-env-to-a-random-string-of-at-least-32-bytes"
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    JWT_REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8
+    JWT_REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 36
     JWT_ISSUER: str = "asset-pilot-fastapi"
 
     # --- Logging ---
@@ -132,15 +122,6 @@ class Settings(BaseSettings):
     @property
     def sqlalchemy_database_uri(self) -> str:
         return str(self.DATABASE_URL)
-
-    @computed_field  # type: ignore[prop-decorator]
-    @property
-    def redis_uri(self) -> str:
-        if self.REDIS_URL is not None:
-            return str(self.REDIS_URL)
-        scheme = "rediss" if self.REDIS_SSL else "redis"
-        auth = f":{self.REDIS_PASSWORD}@" if self.REDIS_PASSWORD else ""
-        return f"{scheme}://{auth}{self.REDIS_HOST}:{self.REDIS_PORT}/{self.REDIS_DB}"
 
     @computed_field  # type: ignore[prop-decorator]
     @property

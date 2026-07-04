@@ -18,7 +18,6 @@ restructure anything later.
 |---|---|
 | Framework | FastAPI (async), Python 3.12 |
 | Database | PostgreSQL via SQLAlchemy 2.0 async ORM + Alembic |
-| Cache | Redis (`redis-py` asyncio client) |
 | Auth | JWT (access + refresh), no OAuth2/social login, no sessions |
 | Logging | `structlog` (JSON in prod, console in dev) |
 | Dependency management | `uv` + `pyproject.toml` / `uv.lock` |
@@ -29,7 +28,7 @@ restructure anything later.
 ```
 API layer (app/api)         -> HTTP in/out, Pydantic schemas only, no DB session, no ORM models
 Service layer (app/services) -> business logic, orchestrates repositories, no HTTP awareness
-Repository layer (app/repositories) -> the ONLY layer touching SQLAlchemy/Redis directly
+Repository layer (app/repositories) -> the ONLY layer touching SQLAlchemy directly
 ```
 
 Every layer crossing goes through a schema/DTO boundary — the API layer
@@ -43,7 +42,7 @@ app/
     health.py            # /health/live, /health/ready — outside /api/v1 on purpose
     v1/
       dependencies.py     # ALL dependency injection wiring lives here
-      routers/            # versioned routers, e.g. ping.py
+      routers/            # versioned routers
   core/
     config.py             # Pydantic Settings — the only place reading env vars
     security.py            # JWT + password hashing plumbing (no login endpoint yet)
@@ -56,11 +55,10 @@ app/
   db/
     base.py                  # declarative Base + shared mixins
     session.py                # async engine/session factory (the ONE place that knows Postgres)
-    redis.py                   # redis connection pool (the ONE place that knows Redis)
   models/                      # SQLAlchemy models (empty until a domain module lands)
   schemas/                      # Pydantic DTOs
-  services/                      # business logic (health, ping — trivial slice only)
-  repositories/                   # data access (base repo interface, cache repo, health repo)
+  services/                      # business logic (health — trivial slice only)
+  repositories/                   # data access (base repo interface, health repo)
   main.py                          # app factory, middleware, global exception handlers
 alembic/                            # migrations (async engine configured)
 tests/
@@ -79,7 +77,7 @@ tooling outside containers — linting, `uv sync`, etc.).
 # create .env in the repo root first — see "Environment configuration"
 # below for the full list of keys (there is no committed template file)
 make env      # verifies .env exists
-make up       # build + start api + redis (detached) — talks to your own local/system Postgres, no postgres container
+make up       # build + start the api (detached) — talks to your own local/system Postgres, no postgres container
 make migrate  # alembic upgrade head (runs natively via uv on the host, not the container)
 make health   # curl /health/ready and pretty-print it
 ```
@@ -89,15 +87,6 @@ The API is now at `http://localhost:8000`. Try:
 ```bash
 curl http://localhost:8000/health/live
 curl http://localhost:8000/health/ready
-curl http://localhost:8000/api/v1/ping   # API -> Service -> Repository -> Redis vertical slice
-```
-
-Optional local debugging tools (redis-commander) are behind a
-compose profile:
-
-```bash
-docker compose --profile tools up -d
-# redis-commander:  http://localhost:8081
 ```
 
 Run the production-shaped image (gunicorn + uvicorn workers, non-root,
@@ -120,10 +109,9 @@ BUILD_TARGET=runtime docker compose up -d --build
 | `make restart` | Restart all services |
 | `make build` | Build images |
 | `make rebuild` | Rebuild images with no cache and start |
-| `make logs` / `logs-api` / `logs-redis` | Tail logs |
+| `make logs` / `logs-api` | Tail logs |
 | `make shell-api` | Shell into the running `api` container |
 | `make shell-db` | `psql` into your local/system Postgres (native, via host `psql` — not a container) |
-| `make shell-redis` | `redis-cli` into the `redis` container |
 | `make create-db` | Create the target DB if missing (native, via `uv run`, not the container) |
 | `make migrate` | `alembic upgrade head` (native, via `uv run`, not the container) |
 | `make makemigrations message="..."` | `alembic revision --autogenerate -m "..."` (native, via `uv run`) |
@@ -131,7 +119,7 @@ BUILD_TARGET=runtime docker compose up -d --build
 | `make db-reset` | Drop + recreate + re-migrate the local dev DB (destructive, local only, native via `uv run`) |
 | `make test` | Run the full pytest suite inside the `api` container |
 | `make test-unit` | Run unit tests only (no external deps) |
-| `make test-integration` | Run integration tests inside the `api` container (needs redis up + local Postgres reachable from the Docker bridge — see "Local Postgres, not a container" below) |
+| `make test-integration` | Run integration tests inside the `api` container (needs local Postgres reachable from the Docker bridge — see "External Postgres, not a container" below) |
 | `make coverage` | Run pytest with a coverage report |
 | `make lint` | `ruff check` + `mypy` |
 | `make format` | `ruff format` + `ruff check --fix` |
@@ -188,16 +176,6 @@ DATABASE_MAX_OVERFLOW=10
 DATABASE_POOL_TIMEOUT=30
 DATABASE_POOL_RECYCLE=1800
 DATABASE_ECHO=false
-
-# Set REDIS_URL directly, or use the discrete fields below. Azure Cache
-# for Redis needs REDIS_SSL=true (rediss://).
-REDIS_HOST=redis
-REDIS_PORT=6379
-REDIS_DB=0
-REDIS_PASSWORD=
-REDIS_SSL=false
-REDIS_SOCKET_TIMEOUT=5.0
-REDIS_MAX_CONNECTIONS=20
 
 JWT_SECRET_KEY=change-me-to-a-long-random-string
 JWT_ALGORITHM=HS256
@@ -288,16 +266,14 @@ Error code taxonomy (`app/core/exceptions.py`): `VALIDATION_ERROR` (422),
 
 - `GET /health/live` — liveness. No dependency checks; always `200`
   unless the process itself is broken.
-- `GET /health/ready` — readiness. Runs `SELECT 1` against Postgres and
-  `PING` against Redis (each with a short timeout), returns `200` if both
-  pass, `503` if either fails:
+- `GET /health/ready` — readiness. Runs `SELECT 1` against Postgres (with
+  a short timeout), returns `200` if it passes, `503` if it fails:
   ```json
   {
     "status": "ok",
     "timestamp": "...",
     "checks": {
-      "database": { "status": "ok", "latency_ms": 4.2, "error": null },
-      "redis":    { "status": "ok", "latency_ms": 1.1, "error": null }
+      "database": { "status": "ok", "latency_ms": 4.2, "error": null }
     }
   }
   ```
@@ -312,8 +288,7 @@ Every swappable piece resolves through exactly one seam:
 |---|---|---|
 | **Postgres -> MySQL** | `app/db/session.py` (driver/engine construction) + swap `asyncpg` for an async MySQL driver in `pyproject.toml`. SQLAlchemy Core/ORM usage in repositories is dialect-agnostic already. | `app/services/*`, `app/api/*`, every repository's business methods |
 | **JWT library swap** (e.g. PyJWT -> python-jose) | `app/core/security.py` only — it's the only module that imports `jwt`/`bcrypt` | `app/api/v1/dependencies.py` (still depends on `get_current_user`/`TokenPayload`), every router |
-| **Add a new external cache** (e.g. Memcached alongside Redis) | Add a new `AbstractCacheRepository` implementation next to `RedisCacheRepository` in `app/repositories/cache_repository.py`, then change the provider in `app/api/v1/dependencies.py` | `app/services/*` — they depend on `AbstractCacheRepository`, never on `redis.asyncio` directly |
-| **Local/system Postgres + Docker Redis -> Azure managed services** | Env vars only (`DATABASE_URL` with `?ssl=require` for Azure Postgres Flexible Server, `REDIS_*`/`REDIS_URL`, `REDIS_SSL=true`) | Zero code — `app/db/session.py` and `app/db/redis.py` are the only places that read those settings, and both already support SSL |
+| **Local/system Postgres -> Azure managed Postgres** | Env vars only (`DATABASE_URL` with `?ssl=require` for Azure Postgres Flexible Server) | Zero code — `app/db/session.py` is the only place that reads that setting, and it already supports SSL |
 
 Other pluggability mechanisms baked in:
 - `AbstractRepository`/`SQLAlchemyRepository` split (`app/repositories/base.py`) — Services depend on the abstract interface.
@@ -327,9 +302,8 @@ Other pluggability mechanisms baked in:
 - **Compute target:** Either **Azure Container Apps** or **App Service
   (Web App for Containers)** work unchanged — both just need the image +
   env vars. This scaffold doesn't assume AKS.
-- **Database/cache:** production `DATABASE_*`/`REDIS_*` env vars point at
-  Azure Database for PostgreSQL (Flexible Server) and Azure Cache for
-  Redis. Set `DATABASE_SSL_MODE=require` and `REDIS_SSL=true`.
+- **Database:** production `DATABASE_*` env vars point at Azure Database
+  for PostgreSQL (Flexible Server). Set `DATABASE_SSL_MODE=require`.
 - **Secrets:** production has no `.env` file at all. Secrets are stored in
   **Azure Key Vault** and surfaced to the container as plain environment
   variables via App Service/Container Apps "Key Vault reference" app
@@ -367,8 +341,6 @@ Other pluggability mechanisms baked in:
 - `core/config.py` has an `LLM_*` settings placeholder group (provider,
   API key, model name, timeout) ready for the chatbot module to use
   without restructuring `Settings`.
-- The existing Redis cache abstraction is expected to double as chat
-  session/context storage later.
 
 ## Testing
 
@@ -376,14 +348,13 @@ Other pluggability mechanisms baked in:
   (`uv run pytest tests/unit`).
 - `tests/integration/` — requires the docker-compose stack (`make up`);
   run via `make test` / `make test-integration`, which exec into the
-  running `api` container so the `redis` hostname resolves and Postgres
-  is reachable via `DATABASE_URL` (see "External Postgres, not a
-  container" above).
+  running `api` container so Postgres is reachable via `DATABASE_URL`
+  (see "External Postgres, not a container" above).
 - `pytest-asyncio` is configured with a **session-scoped** event loop
   (`asyncio_default_fixture_loop_scope`/`asyncio_default_test_loop_scope`
-  = `session`), because the app's DB engine and Redis pool are
-  module-level singletons created once at import time — per-test event
-  loops (the default) would break them after the first test.
+  = `session`), because the app's DB engine is a module-level singleton
+  created once at import time — per-test event loops (the default) would
+  break it after the first test.
 
 ## Dependency management
 
@@ -398,9 +369,9 @@ hand-edit it — regenerate it from `uv.lock` whenever dependencies change.
 
 All packages were pinned to their latest stable release as of setup time
 (FastAPI 0.139.0, SQLAlchemy 2.0.51, Pydantic 2.13.4 / pydantic-settings
-2.14.2, Alembic 1.18.5, asyncpg 0.31.0, structlog 26.1.0, redis-py 8.0.1,
-PyJWT 2.13.0, bcrypt 5.0.0). No known incompatibilities forced a pin
-below latest; `uv lock` resolved everything together in one pass.
+2.14.2, Alembic 1.18.5, asyncpg 0.31.0, structlog 26.1.0, PyJWT 2.13.0,
+bcrypt 5.0.0). No known incompatibilities forced a pin below latest;
+`uv lock` resolved everything together in one pass.
 
 ## Docker images
 
@@ -409,22 +380,3 @@ below latest; `uv lock` resolved everything together in one pass.
 - `runtime` (the default **build** target when building the image directly, what ships to ACR) — production deps only, non-root user, `gunicorn` + `uvicorn.workers.UvicornWorker`. Selectable in the same `docker-compose.yml` via `BUILD_TARGET=runtime` to exercise the production image shape locally.
 
 Note the two "defaults" differ on purpose: building the bare `Dockerfile` with no `--target` flag lands on `runtime` (so ACR builds without extra flags), while `docker-compose.yml` defaults `BUILD_TARGET` to `dev` (so day-to-day local dev doesn't need to set anything).
-
-## Local port conflicts
-
-Redis is published to the host on `6380` by default — not `6379` — since
-most dev machines already have a local Redis bound to the default port,
-which used to make `make up` fail with "address already in use". If
-`6380` is *also* taken, override it without editing any file:
-
-```bash
-REDIS_HOST_PORT=16379 make up
-```
-
-This only changes what's published to the host; the `api` container
-still talks to `redis:6379` over the internal Docker network — unrelated
-to (and unaffected by) `REDIS_PORT` in `.env`, which
-configures that internal connection, not the host mapping. Postgres
-isn't part of `docker-compose.yml` at all (see "Local Postgres, not a
-container" above), so its port is whatever your local install already
-uses — no publish/override mechanism needed here.

@@ -1,23 +1,20 @@
 """Single place where dependency injection is wired together.
 
-Every provider a router needs — DB session, Redis client, repositories,
-services — is resolved here and exposed as an `Annotated` alias. Routers
-only ever import from this module (never construct a session/repository/
-service themselves), so swapping an implementation is a one-file change.
+Every provider a router needs — DB session, repositories, services — is
+resolved here and exposed as an `Annotated` alias. Routers only ever
+import from this module (never construct a session/repository/service
+themselves), so swapping an implementation is a one-file change.
 """
 
 from typing import Annotated
 
 from fastapi import Depends
-from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ForbiddenException
 from app.core.security import TokenPayload, get_current_user
-from app.db.redis import get_redis
 from app.db.session import get_db_session
 from app.models.enums import UserRole
-from app.repositories.cache_repository import AbstractCacheRepository, RedisCacheRepository
 from app.repositories.device_log_repository import DeviceLogRepository
 from app.repositories.extension_request_repository import ExtensionRequestRepository
 from app.repositories.handover_request_repository import HandoverRequestRepository
@@ -36,7 +33,6 @@ from app.services.extension_service import ExtensionService
 from app.services.handover_service import HandoverService
 from app.services.health_service import HealthService
 from app.services.inventory_service import InventoryService
-from app.services.ping_service import PingService
 from app.services.request_service import RequestService
 from app.services.shipping_service import ShippingService
 from app.services.support_service import SupportService
@@ -46,7 +42,6 @@ from app.utils.pagination import PaginationParams
 # --- Infra-level providers ---
 
 DbSession = Annotated[AsyncSession, Depends(get_db_session)]
-RedisClient = Annotated[Redis, Depends(get_redis)]
 CurrentUser = Annotated[TokenPayload, Depends(get_current_user)]
 
 
@@ -66,15 +61,8 @@ PaginationDep = Annotated[PaginationParams, Depends()]
 # --- Repository providers ---
 
 
-def get_cache_repository(redis_client: RedisClient) -> AbstractCacheRepository:
-    return RedisCacheRepository(redis_client)
-
-
-CacheRepositoryDep = Annotated[AbstractCacheRepository, Depends(get_cache_repository)]
-
-
-def get_health_repository(session: DbSession, cache: CacheRepositoryDep) -> AbstractHealthRepository:
-    return HealthRepository(session, cache)
+def get_health_repository(session: DbSession) -> AbstractHealthRepository:
+    return HealthRepository(session)
 
 
 HealthRepositoryDep = Annotated[AbstractHealthRepository, Depends(get_health_repository)]
@@ -153,13 +141,6 @@ def get_auth_service(user_repository: UserRepositoryDep) -> AuthService:
 
 
 AuthServiceDep = Annotated[AuthService, Depends(get_auth_service)]
-
-
-def get_ping_service(cache_repository: CacheRepositoryDep) -> PingService:
-    return PingService(cache_repository)
-
-
-PingServiceDep = Annotated[PingService, Depends(get_ping_service)]
 
 
 def get_device_log_service(device_log_repository: DeviceLogRepositoryDep) -> DeviceLogService:
