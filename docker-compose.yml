@@ -1,24 +1,32 @@
+# Single compose file for both local environments this project has:
+# - `docker compose up -d` (default) builds/runs the `dev` Dockerfile
+#   stage — hot reload, bind-mounted source, dev+prod deps.
+# - `BUILD_TARGET=runtime docker compose up -d --build` builds/runs the
+#   same `runtime` stage that ships to ACR (gunicorn + uvicorn workers,
+#   non-root, prod deps only) to exercise the production image shape
+#   locally. The bind mounts below still overlay host source onto it, so
+#   this checks the prod process model/deps/permissions, not a fully
+#   immutable artifact — for that, run the built image directly with no
+#   compose volumes.
+# Either way, config comes from the same single `.env` (local dev only —
+# see README "Environment configuration"). Real production (Azure
+# Container Apps/App Service) doesn't use this file at all: it pulls the
+# `runtime` image from ACR directly and gets its env vars/secrets
+# (including Key Vault references) injected by the platform.
 x-common-env: &common-env
   env_file:
-    - .env.development
+    - .env
 
 services:
   api:
-    image: asset-pilot-fastapi-api:dev
+    image: asset-pilot-fastapi-api:${BUILD_TARGET:-dev}
     build:
       context: .
       dockerfile: Dockerfile
-      target: dev
+      target: ${BUILD_TARGET:-dev}
     <<: *common-env
     environment:
       REDIS_HOST: redis
-    extra_hosts:
-      # Lets the container reach Postgres running on your host machine
-      # when DATABASE_URL uses host.docker.internal as its hostname, via
-      # the Docker-provided gateway IP — needed on Linux; Docker Desktop
-      # (Mac/Windows) resolves this name natively but the entry is
-      # harmless there too.
-      - "host.docker.internal:host-gateway"
     ports:
       - "${PORT:-8000}:8000"
     volumes:
@@ -57,19 +65,6 @@ services:
       start_period: 5s
     restart: unless-stopped
 
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@example.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
-      PGADMIN_CONFIG_SERVER_MODE: "False"
-    ports:
-      - "5050:80"
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    profiles: ["tools"]
-    restart: unless-stopped
-
   redis-commander:
     image: rediscommander/redis-commander:latest
     environment:
@@ -83,4 +78,3 @@ services:
 
 volumes:
   redis_data:
-  pgadmin_data:

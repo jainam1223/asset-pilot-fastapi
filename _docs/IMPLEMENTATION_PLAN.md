@@ -58,16 +58,16 @@ tests/{unit,integration}/
 | M1 | Domain Models & Migration | — | L | Done |
 | M2 | Auth & RBAC | M1 | M | Done |
 | M3 | Seed Data | M1, M2 | L | Done |
-| M4 | Device Audit Log (service + timeline) | M1 | M | Not Started |
-| M5 | Inventory, Device Detail & Dropdowns | M1, M2, M4 | L | Not Started |
-| M6 | User Management | M1, M2 | M | Not Started |
-| M7 | Request Management & IT Approval Queue | M1, M2, M4 | M | Not Started |
-| M8 | Device Assignment & Client Direct Assign | M4, M5, M7 | L | Not Started |
-| M9 | WFH Shipping & Returns | M4, M8 | M | Not Started |
-| M10 | Support Requests | M4, M5, M8 | L | Not Started |
-| M11 | Extension Requests | M4, M8 | M | Not Started |
-| M12 | Handovers (read-only audit) | M1, M4 | S | Not Started |
-| M13 | Admin Dashboard | M5, M7, M9, M10, M11 | M | Not Started |
+| M4 | Device Audit Log (service + timeline) | M1 | M | Done |
+| M5 | Inventory, Device Detail & Dropdowns | M1, M2, M4 | L | Done |
+| M6 | User Management | M1, M2 | M | Done |
+| M7 | Request Management & IT Approval Queue | M1, M2, M4 | M | Done |
+| M8 | Device Assignment & Client Direct Assign | M4, M5, M7 | L | Done |
+| M9 | WFH Shipping & Returns | M4, M8 | M | Done |
+| M10 | Support Requests | M4, M5, M8 | L | Done |
+| M11 | Extension Requests | M4, M8 | M | Done |
+| M12 | Handovers (read-only audit) | M1, M4 | S | Done |
+| M13 | Admin Dashboard | M5, M7, M9, M10, M11 | M | Done |
 
 **Parallelism:** M1→M2 sequential. After M2: M3, M4, M6 can run in parallel. M5 needs M4. M7 needs M4. M8 needs M5+M7. M9/M10/M11 need M8. M12 needs only M1+M4. M13 is last (aggregates everything).
 
@@ -414,11 +414,11 @@ tests/{unit,integration}/
 **Preconditions:** M5 (items), M7 (requests), M10 (support), M11 (extensions), and handover data (M1/seed). Reuse existing repositories; add count queries.
 
 **Scope checklist:**
-- [ ] Count/aggregate queries (GROUP BY status for items; filtered counts for requests/support/handover/extension). Prefer a single grouped query per entity.
-- [ ] `DashboardService`: summary (parallel/gathered aggregates), recent_requests, open_support.
-- [ ] Schemas for the three responses.
-- [ ] Router `dashboard.py` (prefix `/admin/dashboard`) + register.
-- [ ] Tests against seeded data: counts are internally consistent (sum of status_breakdown == total items).
+- [x] Count/aggregate queries (GROUP BY status for items; filtered counts for requests/support/handover/extension). Prefer a single grouped query per entity.
+- [x] `DashboardService`: summary (parallel/gathered aggregates), recent_requests, open_support.
+- [x] Schemas for the three responses.
+- [x] Router `dashboard.py` (prefix `/admin/dashboard`) + register.
+- [x] Tests against seeded data: counts are internally consistent (sum of status_breakdown == total items).
 
 **Out of scope:** charts/time-series; QR/settings screens.
 

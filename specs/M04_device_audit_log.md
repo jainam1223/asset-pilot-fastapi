@@ -1,6 +1,6 @@
 # M4 — Device Audit Log (service + timeline)
 
-**Status:** Not Started
+**Status:** Done
 **Depends on:** M1
 **Complexity:** M
 

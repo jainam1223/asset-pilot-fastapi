@@ -5,14 +5,13 @@ API := $(COMPOSE) exec api
 RUN_API := $(COMPOSE) run --rm api
 
 # DB/migration commands run natively on the host via `uv run` (not inside
-# the api container) so they work directly against your local/system
+# the api container) so they work directly against your external/system
 # Postgres without depending on docker networking. We pull DATABASE_URL
 # out of the env file with grep (not `source`d) because e.g.
 # CORS_ALLOW_ORIGINS=["*"] gets glob-expanded by the shell if the whole
-# file is sourced; host.docker.internal -> localhost since we're no
-# longer connecting from inside a container.
-HOST_ENV_FILE = .env.$${ENVIRONMENT:-development}
-HOST_DATABASE_URL_CMD = DATABASE_URL=$$(grep '^DATABASE_URL=' $(HOST_ENV_FILE) | cut -d= -f2- | sed 's/host.docker.internal/localhost/')
+# file is sourced. There is exactly one env file, always: .env.
+HOST_ENV_FILE = .env
+HOST_DATABASE_URL_CMD = DATABASE_URL=$$(grep '^DATABASE_URL=' $(HOST_ENV_FILE) | cut -d= -f2-)
 
 # ---- Setup ----
 
@@ -21,9 +20,9 @@ install: ## Sync all dependencies (incl. dev) via uv
 	uv sync
 
 .PHONY: env
-env: ## Copy .env.example -> .env.development if it doesn't exist yet
-	@test -f .env.development || cp .env.example .env.development
-	@echo "-> .env.development ready"
+env: ## Verify .env exists (create it yourself; see README for required keys)
+	@test -f .env || (echo "Missing .env — create one in the repo root with the required keys (see README's Environment configuration section)." && exit 1)
+	@echo "-> .env present"
 
 # ---- Docker lifecycle ----
 
@@ -73,8 +72,8 @@ shell-api: ## Exec into the running api container's shell
 	$(API) bash
 
 .PHONY: shell-db
-shell-db: ## psql using DATABASE_URL from .env.$${ENVIRONMENT:-development} (auto-swaps host.docker.internal -> localhost since this runs on your host, not in the container)
-	@psql "$$(grep '^DATABASE_URL=' $(HOST_ENV_FILE) | cut -d= -f2- | sed -e 's/postgresql+asyncpg/postgresql/' -e 's/host.docker.internal/localhost/')"
+shell-db: ## psql using DATABASE_URL from .env (runs natively on the host)
+	@psql "$$(grep '^DATABASE_URL=' $(HOST_ENV_FILE) | cut -d= -f2- | sed -e 's/postgresql+asyncpg/postgresql/')"
 
 .PHONY: shell-redis
 shell-redis: ## redis-cli into the redis container
@@ -106,6 +105,10 @@ db-reset: ## Drop, recreate, and re-migrate the target database (destructive) (r
 .PHONY: seed
 seed: ## Seed deterministic demo data (truncates + reloads; runs natively via uv, needs a migrated DB)
 	@$(HOST_DATABASE_URL_CMD) uv run python -m scripts.seed
+
+.PHONY: add-user
+add-user: ## Add a single user (edit name/email/role/password in scripts/add_user.py first; runs natively via uv)
+	@$(HOST_DATABASE_URL_CMD) uv run python -m scripts.add_user
 
 # ---- Testing ----
 

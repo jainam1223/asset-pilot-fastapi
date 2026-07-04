@@ -1,6 +1,6 @@
 import uuid
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from app.models.enums import UserRole
 
@@ -8,6 +8,13 @@ from app.models.enums import UserRole
 class LoginRequest(BaseModel):
     email: EmailStr
     password: str
+
+
+class RegisterRequest(BaseModel):
+    name: str
+    email: EmailStr
+    role: UserRole
+    password: str = Field(min_length=8)
 
 
 class RefreshRequest(BaseModel):

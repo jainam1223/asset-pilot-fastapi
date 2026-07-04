@@ -22,12 +22,9 @@ env/
 # uv.lock IS committed (reproducible installs) — do not ignore it.
 
 # --- Environment files (never commit real secrets) ---
+# Only one env file exists: .env (local dev only). Production has no env
+# file at all — Azure injects real env vars (incl. Key Vault references).
 .env
-.env.local
-.env.development
-.env.staging
-.env.production
-!.env.example
 
 # --- Testing / coverage ---
 .pytest_cache/

@@ -4,10 +4,23 @@ from fastapi import APIRouter
 from fastapi.responses import JSONResponse
 
 from app.api.v1.dependencies import AuthServiceDep, CurrentUser
-from app.schemas.auth import LoginRequest, RefreshRequest, TokenResponse, UserMeResponse
+from app.schemas.auth import LoginRequest, RefreshRequest, RegisterRequest, TokenResponse, UserMeResponse
 from app.utils.response import success_response
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+@router.post("/register", status_code=201)
+async def register(payload: RegisterRequest, auth_service: AuthServiceDep) -> JSONResponse:
+    result = await auth_service.register(
+        name=payload.name, email=payload.email, role=payload.role, password=payload.password
+    )
+    schema = TokenResponse(
+        access_token=result.access_token,
+        refresh_token=result.refresh_token,
+        token_type=result.token_type,
+    )
+    return success_response(data=schema.model_dump(), status_code=201, message="Registration successful.")
 
 
 @router.post("/login")

@@ -1,6 +1,6 @@
 # M8 — Device Assignment & Client Direct Assign
 
-**Status:** Not Started
+**Status:** Done
 **Depends on:** M4, M5, M7
 **Complexity:** L
 

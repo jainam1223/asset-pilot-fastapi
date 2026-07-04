@@ -1,6 +1,6 @@
 # M13 — Admin Dashboard
 
-**Status:** Not Started
+**Status:** Done
 **Depends on:** M5, M7, M9, M10, M11
 **Complexity:** M
 
@@ -22,11 +22,11 @@ M5 (items), M7 (requests), M10 (support), M11 (extensions), and handover data (M
 
 ## Scope checklist
 
-- [ ] Count/aggregate queries (GROUP BY status for items; filtered counts for requests/support/handover/extension). Prefer a single grouped query per entity.
-- [ ] `DashboardService`: summary (parallel/gathered aggregates), recent_requests, open_support.
-- [ ] Schemas for the three responses.
-- [ ] Router `dashboard.py` (prefix `/admin/dashboard`) + register.
-- [ ] Tests against seeded data: counts are internally consistent (sum of status_breakdown == total items).
+- [x] Count/aggregate queries (GROUP BY status for items; filtered counts for requests/support/handover/extension). Prefer a single grouped query per entity.
+- [x] `DashboardService`: summary (parallel/gathered aggregates), recent_requests, open_support.
+- [x] Schemas for the three responses.
+- [x] Router `dashboard.py` (prefix `/admin/dashboard`) + register.
+- [x] Tests against seeded data: counts are internally consistent (sum of status_breakdown == total items).
 
 ## Out of scope
 

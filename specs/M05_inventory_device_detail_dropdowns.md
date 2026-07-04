@@ -1,6 +1,6 @@
 # M5 — Inventory, Device Detail & Dropdowns
 
-**Status:** Not Started
+**Status:** Done
 **Depends on:** M1, M2, M4
 **Complexity:** L
 

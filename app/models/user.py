@@ -20,7 +20,7 @@ class User(Base, UUIDPrimaryKeyMixin, TimestampMixin):
 
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True)
-    password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
+    password_hash: Mapped[str] = mapped_column(String(255), nullable=True)
     role: Mapped[UserRole] = mapped_column(
         SAEnum(UserRole, name="user_role", native_enum=True, values_callable=lambda x: [e.value for e in x]),
         nullable=False,

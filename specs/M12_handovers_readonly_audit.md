@@ -1,6 +1,6 @@
 # M12 — Handovers (read-only audit)
 
-**Status:** Not Started
+**Status:** Done
 **Depends on:** M1, M4
 **Complexity:** S
 

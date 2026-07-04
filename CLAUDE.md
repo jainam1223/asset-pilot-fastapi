@@ -15,7 +15,7 @@ Backend for **AssetPilot**, an internal **IT Asset Management (ITAM)** platform.
 - **Redis 8.0.1** (`redis.asyncio`) for cache
 - **Pydantic 2.13.4** + **pydantic-settings 2.14.2**
 - **Auth:** **PyJWT 2.13.0** (HS256, access+refresh) + **bcrypt 5.0.0** — NOT python-jose/passlib
-- **structlog 26.1.0** (JSON in staging/prod, console in dev)
+- **structlog 26.1.0** (JSON in prod, console in dev)
 - Pkg mgr: **uv** (`uv.lock`; `requirements.txt` is an export). Lint/format: **ruff** (line 110). Types: **mypy strict**. Tests: **pytest + pytest-asyncio** (`asyncio_mode=auto`).
 
 ## 3. Architecture & folder conventions
@@ -55,9 +55,9 @@ scripts/                   # e.g. seed.py (to be added)
 
 ## 4. How to run things (from `Makefile`)
 
-Most targets run inside the `api` container via `docker compose exec`. **DB/migration commands are the exception:** `make create-db`, `make migrate`, `make makemigrations`, `make migrate-down`, `make db-reset`, and `make shell-db` run **natively on the host** via `uv run`, against your local/system Postgres directly on `localhost` — not through the container. They read `DATABASE_URL` out of `.env.development` and swap `host.docker.internal` → `localhost` for the host process (see `HOST_DATABASE_URL_CMD` in the `Makefile`). This needs `uv sync` (`make install`) run once on the host, outside Docker.
+Most targets run inside the `api` container via `docker compose exec`. **DB/migration commands are the exception:** `make create-db`, `make migrate`, `make makemigrations`, `make migrate-down`, `make db-reset`, and `make shell-db` run **natively on the host** via `uv run`, against the external Postgres in `DATABASE_URL` — not through the container. They read `DATABASE_URL` out of `.env` directly (see `HOST_DATABASE_URL_CMD` in the `Makefile`). This needs `uv sync` (`make install`) run once on the host, outside Docker.
 
-- `make install` — `uv sync` (deps incl. dev) · `make env` — create `.env.development` from example
+- `make install` — `uv sync` (deps incl. dev) · `make env` — verify `.env` exists (no template file is checked in; create it by hand — see README's "Environment configuration")
 - `make up` / `make down` / `make down-v` (clean slate) / `make rebuild`
 - `make create-db` (create target DB) · `make migrate` (upgrade head) · `make makemigrations message="..."` · `make migrate-down` (rollback one) · `make db-reset` (destructive local reset) — **all native/host, not the container**
 - `make test` · `make test-unit` (`-m unit`) · `make test-integration` (`-m integration` — runs **inside the container**; needs local Postgres reachable from the Docker bridge, see §7) · `make coverage`
@@ -106,7 +106,8 @@ Most targets run inside the `api` container via `docker compose exec`. **DB/migr
 - **`is_wfh`** is set by IT at assignment time (API §4).
 - **Out of scope entirely:** QR management (FE A13) and Category CRUD (FE A14 tab) — no API spec exists; email/notifications (leave no-op stubs where the spec says "email requester").
 - **"AI ranking" (FE A03)** is UX phrasing — `suggested-devices` is a deterministic sort (fewest active requests, longest free), no ML.
-- **No Postgres container.** This project uses your local/system Postgres, not a dockerized one (`docker-compose.yml` has no `postgres` service). `.env.development`'s `DATABASE_URL` targets `host.docker.internal` — required for the `api` container (runtime app) and `make test-integration` (runs inside the container) to reach it via the Docker bridge gateway. For `host.docker.internal` to work, your local Postgres must (one-time setup): (1) `listen_addresses = '*'` in `postgresql.conf` (default is `localhost`-only), (2) a `pg_hba.conf` rule allowing the Docker bridge subnet, e.g. `host all all 172.17.0.0/16 md5`, (3) restart the **actual per-version instance** — `sudo systemctl restart postgresql@<ver>-main`, not the `postgresql` meta-unit, which no-ops on Ubuntu/Debian. The native DB commands in §4 (`create-db`/`migrate`/etc.) don't need any of this — they bypass Docker networking entirely by swapping to `localhost`.
+- **No Postgres container; external/managed Postgres.** `docker-compose.yml` has no `postgres` service — `DATABASE_URL` in `.env` points at an external/managed Postgres instance reachable by hostname from both the `api` container and the host (no `host.docker.internal`/`extra_hosts` involved). The native DB commands in §4 (`create-db`/`migrate`/etc.) run on the host via `uv run` against that same `DATABASE_URL`.
+- **Two environments only, one env file.** `Environment` (`app/core/config.py`) has exactly `development` and `production` — no staging/test. Locally, `Settings` loads `.env` (the only env file that exists; no `.env.example`/`.env.staging`/`.env.production`, no `ENVIRONMENT`-based file-picking). In production there is no env file at all — Azure App Service/Container Apps injects real process env vars, including secrets resolved from **Azure Key Vault** via App Service "Key Vault reference" app settings (`@Microsoft.KeyVault(...)`); Azure resolves those before the container starts, so no Key Vault SDK/code is needed in the app.
 
 ## 8. Things NOT to do
 

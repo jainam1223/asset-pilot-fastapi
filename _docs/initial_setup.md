@@ -64,9 +64,9 @@ docker/
 ```
 
 ### Environment Configuration
-- Separate env files: `.env.development`, `.env.staging`, `.env.production`, and a checked-in `.env.example` with all keys documented (no secrets).
+- Exactly two environments (`development`, `production`) and exactly one env file: `.env`, used for local development only, gitignored, no checked-in template. Production has no env file at all — real environment variables (including Azure Key Vault references) are injected directly by the platform.
 - Centralize config via a Pydantic `BaseSettings` class (`core/config.py`) with typed fields, validation, and an `ENVIRONMENT` switch.
-- `.env*` (except `.env.example`) must be gitignored.
+- `.env` must be gitignored.
 
 ### Target Deployment Environment: Azure
 This setup will eventually deploy to **Azure**, so keep these in mind now (even though actual CI/CD and IaC are out of scope for this commit):
@@ -74,7 +74,7 @@ This setup will eventually deploy to **Azure**, so keep these in mind now (even 
 - **Container registry:** Images will be pushed to **Azure Container Registry (ACR)** — keep the `Dockerfile` generic/standard (no assumptions baked in about a specific registry), just ensure it builds cleanly and tags sensibly (`<name>:<version>`/`<name>:latest`).
 - **Compute target:** Assume **Azure Container Apps** or **App Service (Web App for Containers)** as the likely runtime (mention in the README which one you're leaning toward, or note both as viable, since either just needs a container image + env vars — don't hardcode assumptions specific to AKS unless that's confirmed later).
 - **Managed database/cache:** In production, Postgres and Redis will likely be **Azure Database for PostgreSQL (Flexible Server)** and **Azure Cache for Redis**, not the Dockerized ones used locally. This reinforces the pluggability requirement above — moving from local Docker Postgres/Redis to these managed services must be a pure env var change (`DATABASE_URL`, `REDIS_URL`, plus SSL mode settings — Azure Postgres typically requires `sslmode=require`), with zero code changes. Make sure the SQLAlchemy/Redis connection setup already supports SSL params via config, not just local unencrypted connections.
-- **Secrets:** Don't assume `.env` files exist in production — production config should be resolvable purely from environment variables (which Azure will inject via App Service/Container Apps settings or **Azure Key Vault** references later). Pydantic `Settings` reading from `os.environ` already satisfies this; just don't introduce any local-file-only assumptions into `core/config.py`.
+- **Secrets:** Don't assume `.env` files exist in production — production config should be resolvable purely from environment variables, which Azure injects via App Service/Container Apps settings, including **Azure Key Vault** references (`@Microsoft.KeyVault(...)`) that Azure resolves into plain env vars before the container starts. Pydantic `Settings` reading from `os.environ` already satisfies this; just don't introduce any local-file-only assumptions into `core/config.py`.
 - **Logging:** structlog's JSON output in production is intentional here — Azure Monitor/Log Analytics ingests JSON logs from stdout/stderr well, so make sure production logging writes structured JSON to stdout (not to a file), since Azure captures container stdout/stderr directly.
 - **Health checks:** the `/health/live` and `/health/ready` endpoints defined earlier map directly to Azure Container Apps/App Service health probe configuration — no changes needed there, just keep them as-is.
 - Do not build actual Bicep/Terraform/GitHub Actions/Azure DevOps pipeline files in this commit unless you want to fold that into this same request — flag it separately if so, since it's a reasonably distinct chunk of work from the app scaffolding itself.
@@ -89,7 +89,7 @@ This setup will eventually deploy to **Azure**, so keep these in mind now (even 
 
 - Multi-stage `Dockerfile` (builder + slim runtime image), non-root user, only production deps in final image.
 - `docker-compose.yml` for local dev with services: `api`, `postgres`, `redis`, and optionally `pgadmin`/`redis-commander` for local debugging.
-- Separate compose override or a `docker-compose.prod.yml` for production-like settings (no bind-mounts, no debug tools).
+- Single `docker-compose.yml` only, local dev use — no separate prod compose override; actual production runs on Azure Container Apps/App Service directly from the `runtime` image, not via docker-compose.
 - Healthchecks for postgres, redis, and the api service.
 - Named volumes for Postgres data persistence.
 
@@ -208,7 +208,7 @@ Define ONE consistent response envelope used across **every** endpoint (success 
 - `pytest` + `pytest-asyncio` configured with a test DB/Redis setup (docker-compose test override or testcontainers) and one sample test per layer.
 - Code quality tooling: `ruff` (lint+format) or `black`+`isort`, `mypy`, and `pre-commit` config.
 - `Makefile` with a full set of shortcuts so no command needs to be typed out manually. At minimum include:
-  - **Setup:** `make install` (sync deps via `uv`), `make env` (copy `.env.example` → `.env.development` if missing)
+  - **Setup:** `make install` (sync deps via `uv`), `make env` (verify `.env` exists; no template file is checked in)
   - **Docker lifecycle:** `make up` (start all services, detached), `make down` (stop + remove containers), `make down-v` (also remove volumes — clean slate), `make restart`, `make build` (rebuild images), `make rebuild` (build + up, no cache)
   - **Logs:** `make logs` (tail all services), `make logs-api`, `make logs-db`, `make logs-redis` (tail individual service logs)
   - **Shell access:** `make shell-api` (exec into the running api container's shell), `make shell-db` (psql into postgres container), `make shell-redis` (redis-cli into redis container)

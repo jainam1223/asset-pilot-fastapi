@@ -1,6 +1,6 @@
 # M6 — User Management
 
-**Status:** Not Started
+**Status:** Done
 **Depends on:** M1, M2
 **Complexity:** M
 
@@ -23,11 +23,11 @@ M1 (User model + password_hash), M2 (`require_it_admin`, `UserRepository`, `hash
 
 ## Scope checklist
 
-- [ ] Extend `UserRepository`: list with filters + manager-name join; `has_active_devices_or_requests(user_id)`.
-- [ ] `UserService`: list, create (hash a default password), change_role, activate, deactivate (raise `ConflictException` per F4).
-- [ ] Schemas: `UserListItem`, `CreateUserRequest`, `ChangeRoleRequest`.
-- [ ] Router `users.py` (prefix `/admin/users`) + register.
-- [ ] Email uniqueness →409. Tests incl. deactivate-blocked path.
+- [x] Extend `UserRepository`: list with filters + manager-name join; `has_active_devices_or_requests(user_id)`.
+- [x] `UserService`: list, create (hash a default password), change_role, activate, deactivate (raise `ConflictException` per F4).
+- [x] Schemas: `UserListItem`, `CreateUserRequest`, `ChangeRoleRequest`.
+- [x] Router `users.py` (prefix `/admin/users`) + register.
+- [x] Email uniqueness →409. Tests incl. deactivate-blocked path.
 
 ## Out of scope
 

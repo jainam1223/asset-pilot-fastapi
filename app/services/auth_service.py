@@ -3,12 +3,13 @@
 import uuid
 from dataclasses import dataclass
 
-from app.core.exceptions import NotFoundException, UnauthorizedException
+from app.core.exceptions import ConflictException, NotFoundException, UnauthorizedException
 from app.core.security import (
     TokenType,
     create_access_token,
     create_refresh_token,
     decode_token,
+    hash_password,
     verify_password,
 )
 from app.models.enums import UserRole
@@ -61,6 +62,26 @@ class AuthService:
 
         subject = str(user.id)
         extra_claims = _claims_for(user)
+        return TokenResult(
+            access_token=create_access_token(subject, extra_claims),
+            refresh_token=create_refresh_token(subject, extra_claims),
+        )
+
+    async def register(self, *, name: str, email: str, role: UserRole, password: str) -> TokenResult:
+        if await self.user_repository.get_by_email(email) is not None:
+            raise ConflictException(message=f"A user with email '{email}' already exists.")
+
+        user = User(
+            name=name,
+            email=email,
+            password_hash=hash_password(password),
+            role=role,
+            is_active=True,
+        )
+        created = await self.user_repository.create(user)
+
+        subject = str(created.id)
+        extra_claims = _claims_for(created)
         return TokenResult(
             access_token=create_access_token(subject, extra_claims),
             refresh_token=create_refresh_token(subject, extra_claims),

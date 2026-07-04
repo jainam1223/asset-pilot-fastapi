@@ -1,6 +1,6 @@
 # M9 — WFH Shipping & Returns
 
-**Status:** Not Started
+**Status:** Done
 **Depends on:** M4, M8
 **Complexity:** M
 
@@ -24,11 +24,11 @@ M8 (assigned requests exist), M4 (DeviceLogService), M5 (item status transitions
 
 ## Scope checklist
 
-- [ ] `RequestRepository` queries: outbound queue, returns queue.
-- [ ] `ShippingService`: list_outbound, ship, confirm_delivery, list_returns, complete_return (+ support auto-close cascade using `SupportRepository` or a direct query; be careful not to hard-depend on M10 service — query support_request rows directly).
-- [ ] Schemas for bodies/responses.
-- [ ] Router `shipping.py` (prefix `/admin`) + register.
-- [ ] Tests: ship sets shipping_pending + log; confirm-delivery requires shipping_pending; complete-return sets item next_status, nulls owner, completes request, auto-closes open support with system-actor logs.
+- [x] `RequestRepository` queries: outbound queue, returns queue.
+- [x] `ShippingService`: list_outbound, ship, confirm_delivery, list_returns, complete_return (+ support auto-close cascade using `SupportRepository` or a direct query; be careful not to hard-depend on M10 service — query support_request rows directly).
+- [x] Schemas for bodies/responses.
+- [x] Router `shipping.py` (prefix `/admin`) + register.
+- [x] Tests: ship sets shipping_pending + log; confirm-delivery requires shipping_pending; complete-return sets item next_status, nulls owner, completes request, auto-closes open support with system-actor logs.
 
 ## Out of scope
 

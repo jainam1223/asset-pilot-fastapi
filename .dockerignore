@@ -1,6 +1,7 @@
 .git
 .gitignore
 .github
+.claude
 
 .venv
 venv
@@ -9,10 +10,6 @@ __pycache__
 *.pyc
 
 .env
-.env.local
-.env.development
-.env.staging
-.env.production
 
 .pytest_cache
 .mypy_cache
