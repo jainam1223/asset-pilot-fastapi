@@ -81,8 +81,8 @@ class Settings(BaseSettings):
     # --- JWT / security ---
     JWT_SECRET_KEY: str = "change-me-in-env-to-a-random-string-of-at-least-32-bytes"
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
-    JWT_REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 24 * 7
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 60 * 8
+    JWT_REFRESH_TOKEN_EXPIRE_MINUTES: int = 60 * 36
     JWT_ISSUER: str = "asset-pilot-fastapi"
 
     # --- Logging ---
