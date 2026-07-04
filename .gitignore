@@ -9,6 +9,10 @@ dist/
 *.egg-info/
 .eggs/
 
+# --- Docs ---
+_docs/
+_docs/*
+
 # --- Virtual environments ---
 .venv/
 venv/
