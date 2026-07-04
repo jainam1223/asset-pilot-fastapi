@@ -1,0 +1,387 @@
+Project itam_mvp {
+  database_type: 'PostgreSQL'
+  Note: 'IT Asset Management MVP. WFH shipping (outbound + return), date-range requests, calendar suggestion window, extension as separate table, handover as its own workflow, append-only device log. Requests are never deleted — every successful request ends in status = completed and is retained permanently. Lost devices require a manual IT decision on next status; there is no automatic Lost -> Retired transition.'
+}
+
+// =====================================================================
+// ENUMS
+// =====================================================================
+
+enum user_role {
+  employee
+  manager
+  it_admin
+}
+
+enum device_status {
+  available
+  assigned
+  shipping_pending          // outbound WFH leg only
+  return_shipping_pending   // return WFH leg only
+  under_repair
+  maintenance               // IT-only, set directly via edit item — no lifecycle
+  lost
+  retired
+  returned_to_client        // client-owned devices only — equivalent to retired, set via edit item
+}
+
+enum request_status {
+  requested
+  pending_mgr_approval
+  pending_it_approval
+  assigned
+  completed
+  rejected
+  cancelled
+}
+
+enum mgr_approval_status {
+  not_required
+  pending
+  approved
+  rejected
+}
+
+enum rejected_by_enum {
+  manager
+  it_admin
+  it_admin_cancel
+}
+
+enum request_priority {
+  low
+  medium
+  high
+}
+
+enum owner_type {
+  company
+  client
+}
+
+enum support_type {
+  update
+  damage
+  lost
+}
+
+enum support_status {
+  open
+  in_progress
+  resolved
+}
+
+enum support_resolution {
+  remote_resolved
+  repaired_in_place
+  swapped
+  marked_lost
+}
+
+enum extension_status {
+  pending
+  approved
+  rejected
+}
+
+enum handover_status {
+  requested   // borrower scanned QR, awaiting owner decision
+  accepted    // owner accepted — device is actively on loan
+  rejected    // owner declined
+  cancelled   // borrower withdrew before owner decided
+  completed   // borrower returned the device to the owner
+}
+
+enum device_log_event {
+  device_created
+  device_edited
+  assigned
+  client_assigned
+  ship_outbound_initiated
+  ship_outbound_completed
+  return_ship_initiated
+  return_received
+  assignment_completed
+  status_changed            // generic manual status change, incl. IT's post-Lost decision — never system-triggered
+  support_opened
+  support_resolved
+  support_auto_closed
+  extension_requested
+  extension_approved
+  extension_rejected
+  handover_requested
+  handover_accepted
+  handover_rejected
+  handover_cancelled
+  handover_completed
+  marked_lost
+  retired
+  returned_to_client
+}
+
+enum actor_role {
+  employee
+  manager
+  it_admin
+  system
+}
+
+// =====================================================================
+// TABLEPARTIAL — common timestamp fields injected into every table
+// =====================================================================
+
+TablePartial timestamps {
+  created_at timestamptz [not null, default: `now()`]
+  updated_at timestamptz [not null, default: `now()`]
+}
+
+// =====================================================================
+// USER
+// =====================================================================
+
+Table user {
+  id         uuid         [pk, default: `gen_random_uuid()`]
+  name       varchar(255) [not null]
+  email      varchar(255) [not null, unique]
+  role       user_role    [not null, default: 'employee']
+  manager_id uuid         [note: 'null for managers and it_admins; must point to a user with role = manager (app-enforced)']
+  is_active  boolean      [not null, default: true, note: 'false = left company']
+  ~timestamps
+
+  indexes {
+    manager_id
+    role
+  }
+
+  Note: 'employee, manager, or it_admin. manager_id null for managers/admins.'
+}
+
+Ref: user.manager_id > user.id
+
+// =====================================================================
+// ITEM CATEGORY
+// =====================================================================
+
+Table item_category {
+  id                   uuid         [pk, default: `gen_random_uuid()`]
+  name                 varchar(255) [not null, unique]
+  description          text
+  requires_mgr_approval boolean     [not null, default: false, note: 'snapshotted onto request.requires_mgr_approval at creation time — before any device is chosen']
+  is_active            boolean      [not null, default: true]
+  ~timestamps
+
+  Note: 'Device type/category. requires_mgr_approval drives initial request routing at creation, not device-level flag.'
+}
+
+// =====================================================================
+// ITEM (DEVICE)
+// =====================================================================
+
+Table item {
+  id            uuid          [pk, default: `gen_random_uuid()`]
+  name          varchar(255)  [not null]
+  serial_no     varchar(255)  [not null, unique]
+  category_id   uuid          [not null, ref: > item_category.id]
+  owner_type    owner_type    [not null, default: 'company']
+  client_name   varchar(255)  [note: 'set only when owner_type = client']
+  status        device_status [not null, default: 'available']
+  current_owner_id uuid       [ref: > user.id, note: 'denormalized snapshot; nulled only at return_received / assignment completed']
+  purchase_date date
+  qr_code_token uuid          [not null, unique, default: `gen_random_uuid()`, note: 'encodes device id only; regenerated if compromised']
+  ~timestamps
+
+  indexes {
+    status
+    category_id
+    current_owner_id
+    (category_id, status) [name: 'idx_item_available_by_category', note: 'suggestion-window hot path — filter WHERE status = available']
+  }
+
+  Note: 'Physical device. maintenance and returned_to_client are terminal/manual statuses set directly via IT edit — no lifecycle transitions. lost is also terminal-until-decided: IT must manually choose the next status (commonly retired, but not automatic or enforced) via the same edit action — logged as a status_changed event, actor_role = it_admin, never system. available excluded from suggestion panel via status filter.'
+}
+
+// =====================================================================
+// REQUEST
+// =====================================================================
+
+Table request {
+  id           uuid             [pk, default: `gen_random_uuid()`]
+  requester_id uuid             [not null, ref: > user.id]
+  category_id  uuid             [not null, ref: > item_category.id]
+  assigned_item_id uuid         [ref: > item.id]
+
+  // Date intent vs actual assignment — never overwrite employee originals
+  requested_from timestamptz    [not null, note: 'employee intent — immutable after submission']
+  requested_to   timestamptz    [not null, note: 'employee intent — immutable after submission']
+  assigned_from  timestamptz    [note: 'IT confirmed start — may differ from requested_from']
+  assigned_to    timestamptz    [note: 'IT confirmed end — moved forward by approved extension']
+
+  status                request_status   [not null, default: 'requested']
+  priority              request_priority [not null, default: 'medium']
+  note                  text
+
+  // Manager approval — two fields so rejected vs not_required are always distinguishable
+  requires_mgr_approval  boolean              [not null, default: false, note: 'snapshot from category at creation; IT can flip true for late escalation']
+  mgr_approval_status    mgr_approval_status  [not null, default: 'not_required']
+  manager_id             uuid                 [ref: > user.id, note: 'snapshot of requester manager at creation time']
+  manager_decision_note  text
+  manager_decided_at     timestamptz
+
+  it_decided_by    uuid        [ref: > user.id]
+  it_decision_note text
+  it_decided_at    timestamptz
+
+  rejected_by     rejected_by_enum
+  rejected_reason text
+  cancelled_by    uuid        [ref: > user.id]
+  cancelled_at    timestamptz
+
+  // WFH / shipping
+  is_wfh              boolean [not null, default: false]
+  ship_tracking_url   text    [note: 'outbound leg; set by IT when status moves to shipping_pending']
+  ship_initiated_at   timestamptz
+  ship_completed_at   timestamptz
+  return_tracking_url text    [note: 'return leg; set by employee when initiating return']
+  return_initiated_at timestamptz
+
+  // Completion gate — only place ownership nulls out
+  completed_at         timestamptz
+  completed_by         uuid         [ref: > user.id]
+  completed_next_status device_status [note: 'IT picks: available / under_repair / retired at receive time']
+
+  is_client_direct boolean [not null, default: false, note: 'true = client device direct assign; no request lifecycle']
+
+  ~timestamps
+
+  indexes {
+    requester_id
+    status
+    assigned_item_id
+    category_id
+    (priority, created_at) [name: 'idx_request_it_queue', note: 'IT queue sort — priority desc, oldest first; filter WHERE status = pending_it_approval']
+    (assigned_item_id, status) [name: 'uq_one_active_request_per_item', unique, note: 'one active (non-terminal) request per device — prevents double-allocation; partial: WHERE status NOT IN (rejected, completed, cancelled)']
+    (assigned_item_id, assigned_from, assigned_to) [name: 'idx_request_date_range', note: 'overlap check for suggestion window calendar']
+  }
+
+  Note: 'requested_from/to = employee intent (immutable). assigned_from/to = IT confirmed (mutable via extension approval). is_wfh drives shipping sub-states.'
+}
+
+// =====================================================================
+// EXTENSION REQUEST
+// =====================================================================
+
+Table extension_request {
+  id                  uuid             [pk, default: `gen_random_uuid()`]
+  original_request_id uuid             [not null, ref: > request.id]
+  requester_id        uuid             [not null, ref: > user.id]
+  current_assigned_to timestamptz      [not null, note: 'snapshot of request.assigned_to at time of extension filing']
+  extended_to         timestamptz      [not null, note: 'new end date requested by employee']
+  status              extension_status [not null, default: 'pending']
+
+  // Manager leg — same two-field pattern as request, not a bool
+  requires_mgr_approval boolean    [not null, default: false]
+  manager_id            uuid       [ref: > user.id]
+  mgr_approval_status   mgr_approval_status [not null, default: 'not_required']
+  manager_note          text
+  manager_decided_at    timestamptz
+
+  it_decided_by  uuid        [ref: > user.id]
+  it_note        text
+  it_decided_at  timestamptz
+
+  ~timestamps
+
+  Note: 'On IT approval: request.assigned_to moves to extended_to and this row status becomes approved (row retained permanently, never deleted — same permanence rule as request). If the parent request completes before a decision is made, this row is auto-set to rejected with it_note explaining the auto-cancellation — reuses the existing status value rather than adding a separate cancelled state. device_log captures the trail on the parent device.'
+}
+
+// =====================================================================
+// HANDOVER REQUEST
+// =====================================================================
+
+Table handover_request {
+  id                 uuid             [pk, default: `gen_random_uuid()`]
+  item_id            uuid             [not null, ref: > item.id]
+  owner_id           uuid             [not null, ref: > user.id, note: 'the device current_owner_id at time of request']
+  borrower_id        uuid             [not null, ref: > user.id]
+  requested_duration_hours integer    [note: 'informational only — not enforced, no auto-expiry']
+  status             handover_status  [not null, default: 'requested']
+  requested_at       timestamptz      [not null, default: `now()`]
+  decided_at         timestamptz      [note: 'when owner accepted or rejected']
+  completed_at       timestamptz      [note: 'when borrower returned the device to the owner']
+  note               text
+  ~timestamps
+
+  indexes {
+    item_id
+    borrower_id
+    owner_id
+    (item_id, status) [name: 'uq_one_active_handover_per_item', unique, note: 'partial unique index WHERE status = accepted — only one device on loan at a time; multiple simultaneous requested rows are allowed, first-accept-wins']
+  }
+
+  Note: 'Full lifecycle, not just a log entry: requested -> accepted -> completed, or requested -> rejected/cancelled. Device status and current_owner_id are NEVER changed by a handover at any stage — the owner of record stays the same throughout. device_log records each transition in this flow as it happens; this table is the source of truth for the workflow itself.'
+}
+
+// =====================================================================
+// SUPPORT REQUEST
+// =====================================================================
+
+Table support_request {
+  id           uuid          [pk, default: `gen_random_uuid()`]
+  item_id      uuid          [not null, ref: > item.id]
+  requester_id uuid          [not null, ref: > user.id]
+  request_id   uuid          [ref: > request.id, note: 'active assignment this support was filed under']
+  type         support_type  [not null]
+  description  text          [not null]
+  status       support_status [not null, default: 'open']
+
+  resolution         support_resolution
+  it_note            text
+  swapped_to_item_id uuid [ref: > item.id, note: 'set only when resolution = swapped']
+
+  filed_at    timestamptz [not null, default: `now()`, note: 'real moment employee reported — may differ from created_at if filed offline']
+  resolved_by uuid        [ref: > user.id]
+  resolved_at timestamptz
+  auto_closed boolean     [not null, default: false, note: 'true when closed by return/completion cascade, not by IT action']
+
+  ~timestamps
+
+  indexes {
+    item_id
+    status
+    request_id
+    filed_at [name: 'idx_support_open_queue', note: 'IT open queue — oldest first; filter WHERE status IN (open, in_progress)']
+  }
+
+  Note: 'Support: update / damage / lost. Auto-closed on parent request completion. swapped_to_item_id only set when resolution = swapped.'
+}
+
+// =====================================================================
+// DEVICE LOG (append-only — no UPDATE or DELETE ever)
+// =====================================================================
+
+Table device_log {
+  id                 uuid             [pk, default: `gen_random_uuid()`]
+  item_id            uuid             [not null, ref: > item.id]
+  event_type         device_log_event [not null]
+  actor_id           uuid             [ref: > user.id, note: 'null = system-triggered — the only such case is support_auto_closed; every device status change, including the post-Lost decision, is IT-initiated']
+  actor_role         actor_role       [not null, note: 'always set including system — role filtering never needs a null check']
+  request_id         uuid             [ref: > request.id]
+  support_request_id uuid             [ref: > support_request.id]
+  extension_request_id uuid           [ref: > extension_request.id]
+  handover_request_id uuid            [ref: > handover_request.id]
+  from_value         text             [note: 'prior state: status, owner id, etc.']
+  to_value           text             [note: 'new state']
+  note               text
+  metadata           "jsonb"          [not null, default: `'{}'::jsonb`, note: 'structured extras: tracking URLs, swap target device id, extension delta, etc.']
+  is_milestone       boolean          [not null, default: false, note: 'true = surfaces in device timeline view (assigned, return_received, support_opened/resolved, status changes). false = shipping sub-events, edits — queryable but not shown by default']
+  occurred_at        timestamptz      [not null, default: `now()`]
+
+  indexes {
+    (item_id, occurred_at) [name: 'idx_device_log_item_time']
+    (item_id, occurred_at) [name: 'idx_device_log_milestones', note: 'partial index WHERE is_milestone = true']
+    request_id
+    event_type
+  }
+
+  Note: 'Append-only audit log. is_milestone drives the device timeline view. Enforce in Postgres: CREATE RULE device_log_no_update AS ON UPDATE TO device_log DO INSTEAD NOTHING; CREATE RULE device_log_no_delete AS ON DELETE TO device_log DO INSTEAD NOTHING;'
+}

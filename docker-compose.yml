@@ -1,17 +1,31 @@
+# Single compose file for both local environments this project has:
+# - `docker compose up -d` (default) builds/runs the `dev` Dockerfile
+#   stage — hot reload, bind-mounted source, dev+prod deps.
+# - `BUILD_TARGET=runtime docker compose up -d --build` builds/runs the
+#   same `runtime` stage that ships to ACR (gunicorn + uvicorn workers,
+#   non-root, prod deps only) to exercise the production image shape
+#   locally. The bind mounts below still overlay host source onto it, so
+#   this checks the prod process model/deps/permissions, not a fully
+#   immutable artifact — for that, run the built image directly with no
+#   compose volumes.
+# Either way, config comes from the same single `.env` (local dev only —
+# see README "Environment configuration"). Real production (Azure
+# Container Apps/App Service) doesn't use this file at all: it pulls the
+# `runtime` image from ACR directly and gets its env vars/secrets
+# (including Key Vault references) injected by the platform.
 x-common-env: &common-env
   env_file:
-    - .env.development
+    - .env
 
 services:
   api:
-    image: asset-pilot-fastapi-api:dev
+    image: asset-pilot-fastapi-api:${BUILD_TARGET:-dev}
     build:
       context: .
       dockerfile: Dockerfile
-      target: dev
+      target: ${BUILD_TARGET:-dev}
     <<: *common-env
     environment:
-      DATABASE_HOST: postgres
       REDIS_HOST: redis
     ports:
       - "${PORT:-8000}:8000"
@@ -20,10 +34,9 @@ services:
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - ./tests:/app/tests
+      - ./scripts:/app/scripts
       - ./pyproject.toml:/app/pyproject.toml
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
@@ -32,32 +45,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-    restart: unless-stopped
-
-  postgres:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: ${DATABASE_USER:-postgres}
-      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
-      POSTGRES_DB: ${DATABASE_NAME:-asset_pilot}
-    ports:
-      # DATABASE_HOST_PORT (not DATABASE_PORT) controls the HOST-side
-      # port. Defaults to 5433, not 5432, because most dev machines already
-      # have a local Postgres bound to 5432 — that used to make `make up`
-      # fail with "address already in use" out of the box. DATABASE_PORT
-      # (in .env.development) is unrelated: it's the port the api
-      # container uses to reach `postgres` over the internal Docker
-      # network, where Postgres always listens on its default 5432
-      # regardless of what's published to the host.
-      - "${DATABASE_HOST_PORT:-5433}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-postgres} -d ${DATABASE_NAME:-asset_pilot}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
     restart: unless-stopped
 
   redis:
@@ -78,21 +65,6 @@ services:
       start_period: 5s
     restart: unless-stopped
 
-  pgadmin:
-    image: dpage/pgadmin4:latest
-    environment:
-      PGADMIN_DEFAULT_EMAIL: ${PGADMIN_DEFAULT_EMAIL:-admin@example.com}
-      PGADMIN_DEFAULT_PASSWORD: ${PGADMIN_DEFAULT_PASSWORD:-admin}
-      PGADMIN_CONFIG_SERVER_MODE: "False"
-    ports:
-      - "5050:80"
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-    depends_on:
-      - postgres
-    profiles: ["tools"]
-    restart: unless-stopped
-
   redis-commander:
     image: rediscommander/redis-commander:latest
     environment:
@@ -105,6 +77,4 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres_data:
   redis_data:
-  pgadmin_data:

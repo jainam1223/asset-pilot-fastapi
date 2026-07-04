@@ -5,9 +5,18 @@ secrets, CORS origins, pagination defaults, etc.) must live here and
 nowhere else. Business/data-access code reads `settings`, it never reads
 `os.environ` directly. This is what makes infra swaps (local Docker ->
 Azure managed Postgres/Redis) a pure env-var change.
+
+Only two environments exist: local development and production.
+- **Local:** values come from a single `.env` file in the repo root
+  (gitignored, never committed).
+- **Production:** no `.env` file exists at all. Azure App Service /
+  Container Apps injects real process environment variables directly,
+  including secrets resolved from Azure Key Vault via App Service "Key
+  Vault reference" app settings (`@Microsoft.KeyVault(...)`) — Azure
+  resolves those into plain env vars before the process starts, so
+  `Settings` never talks to Key Vault itself.
 """
 
-import os
 from enum import StrEnum
 from functools import lru_cache
 
@@ -17,34 +26,19 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Environment(StrEnum):
     DEVELOPMENT = "development"
-    STAGING = "staging"
     PRODUCTION = "production"
-    TEST = "test"
-
-
-def _resolve_env_file() -> str:
-    """Picks exactly ONE env file based on `ENVIRONMENT`/`ENV_FILE` — never
-    merge multiple, since e.g. `.env.production`'s placeholder secrets
-    would silently clobber `.env.development`'s real local values if all
-    were loaded together. Missing files are ignored by pydantic-settings,
-    so this is a no-op in containers where real env vars are injected
-    directly (Azure App Service / Container Apps) and no .env file exists.
-    """
-    if env_file := os.getenv("ENV_FILE"):
-        return env_file
-    environment = os.getenv("ENVIRONMENT", Environment.DEVELOPMENT.value)
-    return f".env.{environment}"
 
 
 class Settings(BaseSettings):
-    """Reads from process environment first, then from a single env file
-    selected by `ENVIRONMENT` (local dev convenience only). Production
-    never needs an env file — Azure App Service / Container Apps injects
-    real environment variables directly.
+    """Reads from process environment first, then from `.env` if present.
+    Locally that file supplies every value. In production no `.env` file
+    exists, so this falls through entirely to real process env vars —
+    the same ones Azure injects from App Service settings / Key Vault
+    references.
     """
 
     model_config = SettingsConfigDict(
-        env_file=_resolve_env_file(),
+        env_file=".env",
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -70,16 +64,13 @@ class Settings(BaseSettings):
     GZIP_MIN_SIZE: int = 500
 
     # --- Database (SQLAlchemy async / PostgreSQL) ---
-    # Full URL is derived unless DATABASE_URL is explicitly set (e.g. Azure
-    # connection string). Async driver is asyncpg; Azure Postgres Flexible
-    # Server requires sslmode=require, expressed via DATABASE_SSL_MODE.
-    DATABASE_URL: PostgresDsn | None = None
-    DATABASE_USER: str = "postgres"
-    DATABASE_PASSWORD: str = "postgres"
-    DATABASE_HOST: str = "postgres"
-    DATABASE_PORT: int = 5432
-    DATABASE_NAME: str = "asset_pilot"
-    DATABASE_SSL_MODE: str = "disable"  # "require" in Azure production
+    # Single source of truth: a full connection string, always. Local dev
+    # points it at your host/system Postgres; production points it at
+    # whatever managed Postgres is in play. Async driver is
+    # asyncpg — scheme must be `postgresql+asyncpg://`. Encode SSL directly
+    # in the URL query string where needed, e.g. `?ssl=require` for Azure
+    # Postgres Flexible Server.
+    DATABASE_URL: PostgresDsn
 
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 10
@@ -106,7 +97,7 @@ class Settings(BaseSettings):
 
     # --- Logging ---
     LOG_LEVEL: str = "INFO"
-    LOG_JSON: bool = False  # forced True for staging/production, see below
+    LOG_JSON: bool = False  # forced True in production, see below
 
     # --- Pagination defaults (shared across list endpoints) ---
     DEFAULT_PAGE_SIZE: int = 20
@@ -140,13 +131,7 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def sqlalchemy_database_uri(self) -> str:
-        if self.DATABASE_URL is not None:
-            return str(self.DATABASE_URL)
-        query = "" if self.DATABASE_SSL_MODE == "disable" else f"?ssl={self.DATABASE_SSL_MODE}"
-        return (
-            f"postgresql+asyncpg://{self.DATABASE_USER}:{self.DATABASE_PASSWORD}"
-            f"@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}{query}"
-        )
+        return str(self.DATABASE_URL)
 
     @computed_field  # type: ignore[prop-decorator]
     @property
@@ -165,7 +150,7 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def effective_log_json(self) -> bool:
-        return self.LOG_JSON or self.ENVIRONMENT in (Environment.PRODUCTION, Environment.STAGING)
+        return self.LOG_JSON or self.is_production
 
 
 @lru_cache

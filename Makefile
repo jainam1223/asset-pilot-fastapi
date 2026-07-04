@@ -4,6 +4,15 @@ COMPOSE := docker compose
 API := $(COMPOSE) exec api
 RUN_API := $(COMPOSE) run --rm api
 
+# DB/migration commands run natively on the host via `uv run` (not inside
+# the api container) so they work directly against your external/system
+# Postgres without depending on docker networking. We pull DATABASE_URL
+# out of the env file with grep (not `source`d) because e.g.
+# CORS_ALLOW_ORIGINS=["*"] gets glob-expanded by the shell if the whole
+# file is sourced. There is exactly one env file, always: .env.
+HOST_ENV_FILE = .env
+HOST_DATABASE_URL_CMD = DATABASE_URL=$$(grep '^DATABASE_URL=' $(HOST_ENV_FILE) | cut -d= -f2-)
+
 # ---- Setup ----
 
 .PHONY: install
@@ -11,9 +20,9 @@ install: ## Sync all dependencies (incl. dev) via uv
 	uv sync
 
 .PHONY: env
-env: ## Copy .env.example -> .env.development if it doesn't exist yet
-	@test -f .env.development || cp .env.example .env.development
-	@echo "-> .env.development ready"
+env: ## Verify .env exists (create it yourself; see README for required keys)
+	@test -f .env || (echo "Missing .env — create one in the repo root with the required keys (see README's Environment configuration section)." && exit 1)
+	@echo "-> .env present"
 
 # ---- Docker lifecycle ----
 
@@ -52,10 +61,6 @@ logs: ## Tail logs for all services
 logs-api: ## Tail logs for the api service
 	$(COMPOSE) logs -f api
 
-.PHONY: logs-db
-logs-db: ## Tail logs for the postgres service
-	$(COMPOSE) logs -f postgres
-
 .PHONY: logs-redis
 logs-redis: ## Tail logs for the redis service
 	$(COMPOSE) logs -f redis
@@ -67,8 +72,8 @@ shell-api: ## Exec into the running api container's shell
 	$(API) bash
 
 .PHONY: shell-db
-shell-db: ## psql into the postgres container
-	$(COMPOSE) exec postgres psql -U $${DATABASE_USER:-postgres} -d $${DATABASE_NAME:-asset_pilot}
+shell-db: ## psql using DATABASE_URL from .env (runs natively on the host)
+	@psql "$$(grep '^DATABASE_URL=' $(HOST_ENV_FILE) | cut -d= -f2- | sed -e 's/postgresql+asyncpg/postgresql/')"
 
 .PHONY: shell-redis
 shell-redis: ## redis-cli into the redis container
@@ -76,23 +81,34 @@ shell-redis: ## redis-cli into the redis container
 
 # ---- Database / migrations ----
 
+.PHONY: create-db
+create-db: ## Create the target database if it doesn't already exist (runs natively via uv, against your host Postgres)
+	@$(HOST_DATABASE_URL_CMD) uv run python -m scripts.create_db
+
 .PHONY: migrate
-migrate: ## Apply all pending migrations (alembic upgrade head)
-	$(API) alembic upgrade head
+migrate: ## Apply all pending migrations (alembic upgrade head) (runs natively via uv)
+	@$(HOST_DATABASE_URL_CMD) uv run alembic upgrade head
 
 .PHONY: makemigrations
-makemigrations: ## Autogenerate a migration: make makemigrations message="..."
-	$(API) alembic revision --autogenerate -m "$(message)"
+makemigrations: ## Autogenerate a migration: make makemigrations message="..." (runs natively via uv)
+	@$(HOST_DATABASE_URL_CMD) uv run alembic revision --autogenerate -m "$(message)"
 
 .PHONY: migrate-down
-migrate-down: ## Roll back one migration
-	$(API) alembic downgrade -1
+migrate-down: ## Roll back one migration (runs natively via uv)
+	@$(HOST_DATABASE_URL_CMD) uv run alembic downgrade -1
 
 .PHONY: db-reset
-db-reset: ## Drop, recreate, and re-migrate the local dev database (destructive, local only)
-	$(COMPOSE) down -v postgres
-	$(COMPOSE) up -d postgres
-	$(API) alembic upgrade head
+db-reset: ## Drop, recreate, and re-migrate the target database (destructive) (runs natively via uv)
+	@$(HOST_DATABASE_URL_CMD) uv run python -m scripts.create_db --recreate
+	@$(HOST_DATABASE_URL_CMD) uv run alembic upgrade head
+
+.PHONY: seed
+seed: ## Seed deterministic demo data (truncates + reloads; runs natively via uv, needs a migrated DB)
+	@$(HOST_DATABASE_URL_CMD) uv run python -m scripts.seed
+
+.PHONY: add-user
+add-user: ## Add a single user (edit name/email/role/password in scripts/add_user.py first; runs natively via uv)
+	@$(HOST_DATABASE_URL_CMD) uv run python -m scripts.add_user
 
 # ---- Testing ----
 
@@ -105,7 +121,7 @@ test-unit: ## Run unit tests only
 	$(API) pytest tests/unit -m unit
 
 .PHONY: test-integration
-test-integration: ## Run integration tests only (needs postgres/redis up)
+test-integration: ## Run integration tests only (needs Postgres reachable + redis up)
 	$(API) pytest tests/integration -m integration
 
 .PHONY: coverage

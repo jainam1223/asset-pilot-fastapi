@@ -1,6 +1,6 @@
 """structlog configuration.
 
-JSON output in staging/production (Azure Monitor / Log Analytics ingests
+JSON output in production (Azure Monitor / Log Analytics ingests
 JSON from container stdout), human-readable console rendering in
 development. Request IDs are bound per-request via contextvars in
 `app/utils/request_context.py` and automatically merged into every log

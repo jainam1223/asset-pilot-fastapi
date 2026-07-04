@@ -7,6 +7,7 @@ dependencies = [
     "alembic==1.18.5",
     "asyncpg==0.31.0",
     "bcrypt==5.0.0",
+    "email-validator>=2.3.0",
     "fastapi==0.139.0",
     "gunicorn==26.0.0",
     "pydantic==2.13.4",

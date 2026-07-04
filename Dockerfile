@@ -40,7 +40,7 @@ RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --locked
 
 
-# ---- dev: used only by docker-compose.yml for local development ----
+# ---- dev: docker-compose.yml's default local target (BUILD_TARGET=dev) ----
 FROM python:3.12-slim AS dev
 
 RUN groupadd --system app && useradd --system --gid app --create-home app
@@ -83,7 +83,9 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
     CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health/live', timeout=3).status == 200 else 1)"
 
 # gunicorn + uvicorn workers: the production-grade process manager pattern
-# for ASGI apps on Azure App Service / Container Apps. Local dev uses the
+# for ASGI apps on Azure App Service / Container Apps (default build
+# target, what ships to ACR). Also selectable locally via
+# docker-compose.yml's BUILD_TARGET=runtime; local day-to-day dev uses the
 # `dev` stage above with a hot-reloading `uvicorn --reload` instead.
 CMD ["gunicorn", "app.main:app", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
