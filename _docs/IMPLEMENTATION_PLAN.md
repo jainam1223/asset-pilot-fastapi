@@ -57,7 +57,7 @@ tests/{unit,integration}/
 |---|--------|-----------|-----------|--------|
 | M1 | Domain Models & Migration | — | L | Done |
 | M2 | Auth & RBAC | M1 | M | Done |
-| M3 | Seed Data | M1, M2 | L | Not Started |
+| M3 | Seed Data | M1, M2 | L | Done |
 | M4 | Device Audit Log (service + timeline) | M1 | M | Not Started |
 | M5 | Inventory, Device Detail & Dropdowns | M1, M2, M4 | L | Not Started |
 | M6 | User Management | M1, M2 | M | Not Started |
@@ -139,10 +139,10 @@ tests/{unit,integration}/
 **Preconditions:** M1 done (all models + migration applied). M2 done (`hash_password` available for seeded credentials).
 
 **Scope checklist:**
-- [ ] `scripts/seed.py` (async, uses `AsyncSessionLocal`); wire a `make seed` target (and note re-runnability — truncate in FK-safe order: device_log, support_request, handover_request, extension_request, request, item, item_category, user).
-- [ ] Deterministic generation (fixed random seed) so the dataset is reproducible.
-- [ ] Respect all invariants: only one active request per item (unique index), only one accepted handover per item, valid FK targets, correct enum values, milestone flags on device_log.
-- [ ] Print a summary (rows per table) at the end.
+- [x] `scripts/seed.py` (async, uses `AsyncSessionLocal`); wire a `make seed` target (and note re-runnability — truncate in FK-safe order: device_log, support_request, handover_request, extension_request, request, item, item_category, user).
+- [x] Deterministic generation (fixed random seed) so the dataset is reproducible.
+- [x] Respect all invariants: only one active request per item (unique index), only one accepted handover per item, valid FK targets, correct enum values, milestone flags on device_log.
+- [x] Print a summary (rows per table) at the end.
 
 **Out of scope:** any endpoint; QR PDF generation; a literal 1:1 port of the TS/Prisma code (re-implement intent in Python).
 

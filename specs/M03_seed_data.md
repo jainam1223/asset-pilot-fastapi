@@ -1,6 +1,6 @@
 # M3 — Seed Data
 
-**Status:** Not Started
+**Status:** Done
 **Depends on:** M1, M2
 **Complexity:** L
 
@@ -20,10 +20,10 @@ M1 done (all models + migration applied). M2 done (`hash_password` available for
 
 ## Scope checklist
 
-- [ ] `scripts/seed.py` (async, uses `AsyncSessionLocal`); wire a `make seed` target (and note re-runnability — truncate in FK-safe order: device_log, support_request, handover_request, extension_request, request, item, item_category, user).
-- [ ] Deterministic generation (fixed random seed) so the dataset is reproducible.
-- [ ] Respect all invariants: only one active request per item (unique index), only one accepted handover per item, valid FK targets, correct enum values, milestone flags on device_log.
-- [ ] Print a summary (rows per table) at the end.
+- [x] `scripts/seed.py` (async, uses `AsyncSessionLocal`); wire a `make seed` target (and note re-runnability — truncate in FK-safe order: device_log, support_request, handover_request, extension_request, request, item, item_category, user).
+- [x] Deterministic generation (fixed random seed) so the dataset is reproducible.
+- [x] Respect all invariants: only one active request per item (unique index), only one accepted handover per item, valid FK targets, correct enum values, milestone flags on device_log.
+- [x] Print a summary (rows per table) at the end.
 
 ## Out of scope
 

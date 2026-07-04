@@ -103,6 +103,10 @@ db-reset: ## Drop, recreate, and re-migrate the target database (destructive) (r
 	@$(HOST_DATABASE_URL_CMD) uv run python -m scripts.create_db --recreate
 	@$(HOST_DATABASE_URL_CMD) uv run alembic upgrade head
 
+.PHONY: seed
+seed: ## Seed deterministic demo data (truncates + reloads; runs natively via uv, needs a migrated DB)
+	@$(HOST_DATABASE_URL_CMD) uv run python -m scripts.seed
+
 # ---- Testing ----
 
 .PHONY: test
