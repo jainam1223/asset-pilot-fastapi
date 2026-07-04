@@ -77,8 +77,8 @@ tooling outside containers — linting, `uv sync`, etc.).
 
 ```bash
 make env      # copy .env.example -> .env.development (only if missing)
-make up       # build + start api, postgres, redis (detached)
-make migrate  # alembic upgrade head
+make up       # build + start api + redis (detached) — talks to your own local/system Postgres, no postgres container
+make migrate  # alembic upgrade head (runs natively via uv on the host, not the container)
 make health   # curl /health/ready and pretty-print it
 ```
 
@@ -118,17 +118,18 @@ docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 | `make restart` | Restart all services |
 | `make build` | Build images |
 | `make rebuild` | Rebuild images with no cache and start |
-| `make logs` / `logs-api` / `logs-db` / `logs-redis` | Tail logs |
+| `make logs` / `logs-api` / `logs-redis` | Tail logs |
 | `make shell-api` | Shell into the running `api` container |
-| `make shell-db` | `psql` into the `postgres` container |
+| `make shell-db` | `psql` into your local/system Postgres (native, via host `psql` — not a container) |
 | `make shell-redis` | `redis-cli` into the `redis` container |
-| `make migrate` | `alembic upgrade head` |
-| `make makemigrations message="..."` | `alembic revision --autogenerate -m "..."` |
-| `make migrate-down` | Roll back one migration |
-| `make db-reset` | Drop + recreate + re-migrate the local dev DB (destructive, local only) |
+| `make create-db` | Create the target DB if missing (native, via `uv run`, not the container) |
+| `make migrate` | `alembic upgrade head` (native, via `uv run`, not the container) |
+| `make makemigrations message="..."` | `alembic revision --autogenerate -m "..."` (native, via `uv run`) |
+| `make migrate-down` | Roll back one migration (native, via `uv run`) |
+| `make db-reset` | Drop + recreate + re-migrate the local dev DB (destructive, local only, native via `uv run`) |
 | `make test` | Run the full pytest suite inside the `api` container |
 | `make test-unit` | Run unit tests only (no external deps) |
-| `make test-integration` | Run integration tests only (needs postgres/redis up) |
+| `make test-integration` | Run integration tests inside the `api` container (needs redis up + local Postgres reachable from the Docker bridge — see "Local Postgres, not a container" below) |
 | `make coverage` | Run pytest with a coverage report |
 | `make lint` | `ruff check` + `mypy` |
 | `make format` | `ruff format` + `ruff check --fix` |
@@ -161,6 +162,31 @@ value whenever all three files coexisted on disk, because pydantic-
 settings applies later files in the tuple last. `core/config.py` now
 resolves exactly one file based on `ENVIRONMENT` (or an explicit
 `ENV_FILE` override).
+
+## Local Postgres, not a container
+
+`docker-compose.yml` does **not** run a Postgres container — `DATABASE_URL`
+in `.env.development` points at your own local/system Postgres install via
+`host.docker.internal` (works on Linux thanks to the `extra_hosts:
+host-gateway` entry; native on Docker Desktop).
+
+- **DB management commands** (`make create-db`, `make migrate`,
+  `make makemigrations`, `make migrate-down`, `make db-reset`,
+  `make shell-db`) run **natively on the host** via `uv run`/`psql`, not
+  in the container — they swap `host.docker.internal` for `localhost`, so
+  they work out of the box as long as `uv sync` (`make install`) has been
+  run once and your local Postgres accepts connections on `localhost`.
+- **The running `api` container** and **`make test-integration`** (which
+  execs into that container) still need to reach Postgres over the Docker
+  bridge, which requires a one-time host Postgres config change:
+  ```bash
+  # find your version's config dir, e.g. /etc/postgresql/14/main
+  sudo sed -i "s/^#listen_addresses = 'localhost'/listen_addresses = '*'/" /etc/postgresql/<ver>/main/postgresql.conf
+  echo "host    all             all             172.17.0.0/16           md5" | sudo tee -a /etc/postgresql/<ver>/main/pg_hba.conf
+  sudo systemctl restart postgresql@<ver>-main   # the per-version instance, NOT the `postgresql` meta-unit
+  ```
+  `172.17.0.0/16` is the default Docker bridge subnet (`docker0`) — adjust
+  if yours differs (`ip -4 addr show docker0`).
 
 ## Standard response envelope
 
@@ -236,7 +262,7 @@ Every swappable piece resolves through exactly one seam:
 | **Postgres -> MySQL** | `app/db/session.py` (driver/engine construction) + swap `asyncpg` for an async MySQL driver in `pyproject.toml`. SQLAlchemy Core/ORM usage in repositories is dialect-agnostic already. | `app/services/*`, `app/api/*`, every repository's business methods |
 | **JWT library swap** (e.g. PyJWT -> python-jose) | `app/core/security.py` only — it's the only module that imports `jwt`/`bcrypt` | `app/api/v1/dependencies.py` (still depends on `get_current_user`/`TokenPayload`), every router |
 | **Add a new external cache** (e.g. Memcached alongside Redis) | Add a new `AbstractCacheRepository` implementation next to `RedisCacheRepository` in `app/repositories/cache_repository.py`, then change the provider in `app/api/v1/dependencies.py` | `app/services/*` — they depend on `AbstractCacheRepository`, never on `redis.asyncio` directly |
-| **Local Docker Postgres/Redis -> Azure managed services** | Env vars only (`DATABASE_*`/`DATABASE_URL`, `REDIS_*`/`REDIS_URL`, `DATABASE_SSL_MODE=require`, `REDIS_SSL=true`) | Zero code — `app/db/session.py` and `app/db/redis.py` are the only places that read those settings, and both already support SSL |
+| **Local/system Postgres + Docker Redis -> Azure managed services** | Env vars only (`DATABASE_URL` with `?ssl=require` for Azure Postgres Flexible Server, `REDIS_*`/`REDIS_URL`, `REDIS_SSL=true`) | Zero code — `app/db/session.py` and `app/db/redis.py` are the only places that read those settings, and both already support SSL |
 
 Other pluggability mechanisms baked in:
 - `AbstractRepository`/`SQLAlchemyRepository` split (`app/repositories/base.py`) — Services depend on the abstract interface.
@@ -296,7 +322,9 @@ Other pluggability mechanisms baked in:
   (`uv run pytest tests/unit`).
 - `tests/integration/` — requires the docker-compose stack (`make up`);
   run via `make test` / `make test-integration`, which exec into the
-  running `api` container so `postgres`/`redis` hostnames resolve.
+  running `api` container so the `redis` hostname resolves and Postgres
+  is reachable via `host.docker.internal` (see "Local Postgres, not a
+  container" above).
 - `pytest-asyncio` is configured with a **session-scoped** event loop
   (`asyncio_default_fixture_loop_scope`/`asyncio_default_test_loop_scope`
   = `session`), because the app's DB engine and Redis pool are
@@ -328,18 +356,19 @@ below latest; `uv lock` resolved everything together in one pass.
 
 ## Local port conflicts
 
-Postgres and Redis are published to the host on `5433`/`6380` by
-default — not `5432`/`6379` — since most dev machines already have a
-local Postgres/Redis bound to those default ports, which used to make
-`make up` fail with "address already in use". If `5433`/`6380` are
-*also* taken, override them without editing any file:
+Redis is published to the host on `6380` by default — not `6379` — since
+most dev machines already have a local Redis bound to the default port,
+which used to make `make up` fail with "address already in use". If
+`6380` is *also* taken, override it without editing any file:
 
 ```bash
-DATABASE_HOST_PORT=15432 REDIS_HOST_PORT=16379 make up
+REDIS_HOST_PORT=16379 make up
 ```
 
-These only change what's published to the host. The containers still
-talk to each other over the internal Docker network on the standard
-`postgres:5432` / `redis:6379` — unrelated to (and unaffected by)
-`DATABASE_PORT`/`REDIS_PORT` in `.env.development`, which configure that
-internal connection, not the host mapping.
+This only changes what's published to the host; the `api` container
+still talks to `redis:6379` over the internal Docker network — unrelated
+to (and unaffected by) `REDIS_PORT` in `.env.development`, which
+configures that internal connection, not the host mapping. Postgres
+isn't part of `docker-compose.yml` at all (see "Local Postgres, not a
+container" above), so its port is whatever your local install already
+uses — no publish/override mechanism needed here.

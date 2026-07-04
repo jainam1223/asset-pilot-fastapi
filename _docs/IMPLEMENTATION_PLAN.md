@@ -55,7 +55,7 @@ tests/{unit,integration}/
 
 | # | Module | Depends On | Complexity | Status |
 |---|--------|-----------|-----------|--------|
-| M1 | Domain Models & Migration | — | L | Not Started |
+| M1 | Domain Models & Migration | — | L | Done |
 | M2 | Auth & RBAC | M1 | M | Not Started |
 | M3 | Seed Data | M1, M2 | L | Not Started |
 | M4 | Device Audit Log (service + timeline) | M1 | M | Not Started |

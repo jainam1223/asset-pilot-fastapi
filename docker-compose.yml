@@ -11,8 +11,14 @@ services:
       target: dev
     <<: *common-env
     environment:
-      DATABASE_HOST: postgres
       REDIS_HOST: redis
+    extra_hosts:
+      # Lets the container reach Postgres running on your host machine
+      # when DATABASE_URL uses host.docker.internal as its hostname, via
+      # the Docker-provided gateway IP — needed on Linux; Docker Desktop
+      # (Mac/Windows) resolves this name natively but the entry is
+      # harmless there too.
+      - "host.docker.internal:host-gateway"
     ports:
       - "${PORT:-8000}:8000"
     volumes:
@@ -20,10 +26,9 @@ services:
       - ./alembic:/app/alembic
       - ./alembic.ini:/app/alembic.ini
       - ./tests:/app/tests
+      - ./scripts:/app/scripts
       - ./pyproject.toml:/app/pyproject.toml
     depends_on:
-      postgres:
-        condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
@@ -32,32 +37,6 @@ services:
       timeout: 5s
       retries: 5
       start_period: 10s
-    restart: unless-stopped
-
-  postgres:
-    image: postgres:17-alpine
-    environment:
-      POSTGRES_USER: ${DATABASE_USER:-postgres}
-      POSTGRES_PASSWORD: ${DATABASE_PASSWORD:-postgres}
-      POSTGRES_DB: ${DATABASE_NAME:-asset_pilot}
-    ports:
-      # DATABASE_HOST_PORT (not DATABASE_PORT) controls the HOST-side
-      # port. Defaults to 5433, not 5432, because most dev machines already
-      # have a local Postgres bound to 5432 — that used to make `make up`
-      # fail with "address already in use" out of the box. DATABASE_PORT
-      # (in .env.development) is unrelated: it's the port the api
-      # container uses to reach `postgres` over the internal Docker
-      # network, where Postgres always listens on its default 5432
-      # regardless of what's published to the host.
-      - "${DATABASE_HOST_PORT:-5433}:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DATABASE_USER:-postgres} -d ${DATABASE_NAME:-asset_pilot}"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-      start_period: 5s
     restart: unless-stopped
 
   redis:
@@ -88,8 +67,6 @@ services:
       - "5050:80"
     volumes:
       - pgadmin_data:/var/lib/pgadmin
-    depends_on:
-      - postgres
     profiles: ["tools"]
     restart: unless-stopped
 
@@ -105,6 +82,5 @@ services:
     restart: unless-stopped
 
 volumes:
-  postgres_data:
   redis_data:
   pgadmin_data:

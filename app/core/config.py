@@ -70,16 +70,13 @@ class Settings(BaseSettings):
     GZIP_MIN_SIZE: int = 500
 
     # --- Database (SQLAlchemy async / PostgreSQL) ---
-    # Full URL is derived unless DATABASE_URL is explicitly set (e.g. Azure
-    # connection string). Async driver is asyncpg; Azure Postgres Flexible
-    # Server requires sslmode=require, expressed via DATABASE_SSL_MODE.
-    DATABASE_URL: PostgresDsn | None = None
-    DATABASE_USER: str = "postgres"
-    DATABASE_PASSWORD: str = "postgres"
-    DATABASE_HOST: str = "postgres"
-    DATABASE_PORT: int = 5432
-    DATABASE_NAME: str = "asset_pilot"
-    DATABASE_SSL_MODE: str = "disable"  # "require" in Azure production
+    # Single source of truth: a full connection string, always. Local dev
+    # points it at your host/system Postgres; staging/production point it
+    # at whatever distributed/managed Postgres is in play. Async driver is
+    # asyncpg — scheme must be `postgresql+asyncpg://`. Encode SSL directly
+    # in the URL query string where needed, e.g. `?ssl=require` for Azure
+    # Postgres Flexible Server.
+    DATABASE_URL: PostgresDsn
 
     DATABASE_POOL_SIZE: int = 10
     DATABASE_MAX_OVERFLOW: int = 10
@@ -140,13 +137,7 @@ class Settings(BaseSettings):
     @computed_field  # type: ignore[prop-decorator]
     @property
     def sqlalchemy_database_uri(self) -> str:
-        if self.DATABASE_URL is not None:
-            return str(self.DATABASE_URL)
-        query = "" if self.DATABASE_SSL_MODE == "disable" else f"?ssl={self.DATABASE_SSL_MODE}"
-        return (
-            f"postgresql+asyncpg://{self.DATABASE_USER}:{self.DATABASE_PASSWORD}"
-            f"@{self.DATABASE_HOST}:{self.DATABASE_PORT}/{self.DATABASE_NAME}{query}"
-        )
+        return str(self.DATABASE_URL)
 
     @computed_field  # type: ignore[prop-decorator]
     @property

@@ -53,14 +53,16 @@ scripts/                   # e.g. seed.py (to be added)
 - Wire providers in `app/api/v1/dependencies.py`; register the router in `app/api/v1/routers/__init__.py`.
 - Migration → `make makemigrations message="..."` (never hand-author the filename).
 
-## 4. How to run things (from `Makefile`; runs inside the `api` container)
+## 4. How to run things (from `Makefile`)
+
+Most targets run inside the `api` container via `docker compose exec`. **DB/migration commands are the exception:** `make create-db`, `make migrate`, `make makemigrations`, `make migrate-down`, `make db-reset`, and `make shell-db` run **natively on the host** via `uv run`, against your local/system Postgres directly on `localhost` — not through the container. They read `DATABASE_URL` out of `.env.development` and swap `host.docker.internal` → `localhost` for the host process (see `HOST_DATABASE_URL_CMD` in the `Makefile`). This needs `uv sync` (`make install`) run once on the host, outside Docker.
 
 - `make install` — `uv sync` (deps incl. dev) · `make env` — create `.env.development` from example
 - `make up` / `make down` / `make down-v` (clean slate) / `make rebuild`
-- `make migrate` (upgrade head) · `make makemigrations message="..."` · `make migrate-down` (rollback one) · `make db-reset` (destructive local reset)
-- `make test` · `make test-unit` (`-m unit`) · `make test-integration` (`-m integration`) · `make coverage`
+- `make create-db` (create target DB) · `make migrate` (upgrade head) · `make makemigrations message="..."` · `make migrate-down` (rollback one) · `make db-reset` (destructive local reset) — **all native/host, not the container**
+- `make test` · `make test-unit` (`-m unit`) · `make test-integration` (`-m integration` — runs **inside the container**; needs local Postgres reachable from the Docker bridge, see §7) · `make coverage`
 - `make lint` (ruff check + `mypy app tests`) · `make format` (ruff format + `--fix`) · `make pre-commit`
-- `make health` (curls `/health/ready`) · `make shell-api` / `make shell-db` (psql) / `make shell-redis`
+- `make health` (curls `/health/ready`) · `make shell-api` (container) / `make shell-db` (host, psql) / `make shell-redis` (container)
 - **Seed:** `scripts/seed.py` + a `make seed` target are added in Module M3.
 
 ## 5. Coding conventions (cite the reference slice)
@@ -104,6 +106,7 @@ scripts/                   # e.g. seed.py (to be added)
 - **`is_wfh`** is set by IT at assignment time (API §4).
 - **Out of scope entirely:** QR management (FE A13) and Category CRUD (FE A14 tab) — no API spec exists; email/notifications (leave no-op stubs where the spec says "email requester").
 - **"AI ranking" (FE A03)** is UX phrasing — `suggested-devices` is a deterministic sort (fewest active requests, longest free), no ML.
+- **No Postgres container.** This project uses your local/system Postgres, not a dockerized one (`docker-compose.yml` has no `postgres` service). `.env.development`'s `DATABASE_URL` targets `host.docker.internal` — required for the `api` container (runtime app) and `make test-integration` (runs inside the container) to reach it via the Docker bridge gateway. For `host.docker.internal` to work, your local Postgres must (one-time setup): (1) `listen_addresses = '*'` in `postgresql.conf` (default is `localhost`-only), (2) a `pg_hba.conf` rule allowing the Docker bridge subnet, e.g. `host all all 172.17.0.0/16 md5`, (3) restart the **actual per-version instance** — `sudo systemctl restart postgresql@<ver>-main`, not the `postgresql` meta-unit, which no-ops on Ubuntu/Debian. The native DB commands in §4 (`create-db`/`migrate`/etc.) don't need any of this — they bypass Docker networking entirely by swapping to `localhost`.
 
 ## 8. Things NOT to do
 

@@ -1,6 +1,6 @@
 # M1 — Domain Models & Migration
 
-**Status:** Not Started
+**Status:** Done
 **Depends on:** — (foundation module)
 **Complexity:** L
 
