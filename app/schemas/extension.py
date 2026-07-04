@@ -1,18 +1,14 @@
 """Pydantic DTOs for extension-request review (API §9)."""
 
 import uuid
-from datetime import date, datetime
+from datetime import datetime
 
 from pydantic import BaseModel
 
-from app.models.enums import (
-    DeviceStatus,
-    ExtensionStatus,
-    MgrApprovalStatus,
-    OwnerType,
-    RequestStatus,
-    UserRole,
-)
+from app.models.enums import ExtensionStatus, MgrApprovalStatus
+from app.schemas.item import ItemResponse
+from app.schemas.request import RequestResponse
+from app.schemas.user import UserResponse
 
 
 class ExtensionRequestResponse(BaseModel):
@@ -39,42 +35,10 @@ class ExtensionListEntryResponse(ExtensionRequestResponse):
     requester_name: str
 
 
-class ExtensionParentRequestResponse(BaseModel):
-    id: uuid.UUID
-    requester_id: uuid.UUID
-    category_id: uuid.UUID
-    assigned_item_id: uuid.UUID | None
-    assigned_from: datetime | None
-    assigned_to: datetime | None
-    status: RequestStatus
-
-
-class ExtensionItemResponse(BaseModel):
-    id: uuid.UUID
-    name: str
-    serial_no: str
-    category_id: uuid.UUID
-    owner_type: OwnerType
-    client_name: str | None
-    status: DeviceStatus
-    current_owner_id: uuid.UUID | None
-    purchase_date: date | None
-    qr_code_token: uuid.UUID
-
-
-class ExtensionRequesterResponse(BaseModel):
-    id: uuid.UUID
-    name: str
-    email: str
-    role: UserRole
-    manager_id: uuid.UUID | None
-    is_active: bool
-
-
 class ExtensionDetailResponse(ExtensionRequestResponse):
-    request: ExtensionParentRequestResponse
-    item: ExtensionItemResponse
-    requester: ExtensionRequesterResponse
+    request: RequestResponse
+    item: ItemResponse
+    requester: UserResponse
 
 
 class ExtensionDecisionRequest(BaseModel):
