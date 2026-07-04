@@ -1,6 +1,6 @@
 # M2 — Auth & RBAC
 
-**Status:** Not Started
+**Status:** Done
 **Depends on:** M1
 **Complexity:** M
 
@@ -20,13 +20,13 @@ M1 done (`from app.models import User`; `password_hash` column exists). `app/cor
 
 ## Scope checklist
 
-- [ ] `UserRepository` (subclass `SQLAlchemyRepository[User]`) with `get_by_email`.
-- [ ] `AuthService`: `authenticate(email, password)` → verify hash, issue access+refresh; `refresh(token)` → validate `type=refresh`, reissue; `get_me(user_id)`.
-- [ ] Schemas: `LoginRequest{email,password}`, `TokenResponse{access_token, refresh_token, token_type}`, `RefreshRequest{refresh_token}`, `UserMeResponse{id,name,email,role,manager_id,is_active}`.
-- [ ] Router `app/api/v1/routers/auth.py` (prefix `/auth`): `POST /login`, `POST /refresh`, `GET /me` (uses `CurrentUser`). Register in `routers/__init__.py`.
-- [ ] `require_it_admin` dependency (wraps `get_current_user`, raises `ForbiddenException` if `role != it_admin`); expose `ITAdminUser` Annotated alias in `dependencies.py`. All M5–M13 admin routers depend on it.
-- [ ] DI wiring: `get_user_repository`, `get_auth_service`, `AuthServiceDep`.
-- [ ] Tests: login success/wrong-password (401), refresh, `/me`, `require_it_admin` forbids non-admin (403).
+- [x] `UserRepository` (subclass `SQLAlchemyRepository[User]`) with `get_by_email`.
+- [x] `AuthService`: `authenticate(email, password)` → verify hash, issue access+refresh; `refresh(token)` → validate `type=refresh`, reissue; `get_me(user_id)`.
+- [x] Schemas: `LoginRequest{email,password}`, `TokenResponse{access_token, refresh_token, token_type}`, `RefreshRequest{refresh_token}`, `UserMeResponse{id,name,email,role,manager_id,is_active}`.
+- [x] Router `app/api/v1/routers/auth.py` (prefix `/auth`): `POST /login`, `POST /refresh`, `GET /me` (uses `CurrentUser`). Register in `routers/__init__.py`.
+- [x] `require_it_admin` dependency (wraps `get_current_user`, raises `ForbiddenException` if `role != it_admin`); expose `ITAdminUser` Annotated alias in `dependencies.py`. All M5–M13 admin routers depend on it.
+- [x] DI wiring: `get_user_repository`, `get_auth_service`, `AuthServiceDep`.
+- [x] Tests: login success/wrong-password (401), refresh, `/me`, `require_it_admin` forbids non-admin (403).
 
 ## Out of scope
 
