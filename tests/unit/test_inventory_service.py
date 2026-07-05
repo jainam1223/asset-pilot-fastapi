@@ -372,18 +372,24 @@ async def test_get_detail_assembles_composite_view() -> None:
         status=SupportStatus.OPEN,
         filed_at=_next_ts(),
     )
+    borrower = User(
+        id=uuid.uuid4(),
+        name="Borrower",
+        email="borrower@techcorp.internal",
+        password_hash="hash",
+    )
     handover = HandoverRequest(
         id=uuid.uuid4(),
         item_id=item.id,
         owner_id=owner.id,
-        borrower_id=uuid.uuid4(),
+        borrower_id=borrower.id,
         status=HandoverStatus.ACCEPTED,
         requested_at=_next_ts(),
     )
     service, _ = _build_service(
         items=[item],
         categories=[category],
-        users=[owner],
+        users=[owner, borrower],
         requests=[request],
         support_requests=[support],
         handovers=[handover],
@@ -395,6 +401,35 @@ async def test_get_detail_assembles_composite_view() -> None:
     assert detail.current_owner.id == owner.id
     assert detail.current_request is not None
     assert detail.current_request.id == request.id
+    assert detail.current_request.requester_name == "Owner"
     assert [s.id for s in detail.open_support] == [support.id]
     assert detail.active_handover is not None
     assert detail.active_handover.id == handover.id
+    assert detail.active_handover.owner_name == "Owner"
+    assert detail.active_handover.borrower_name == "Borrower"
+
+
+async def test_get_detail_resolves_requester_name_when_different_from_current_owner() -> None:
+    category = _make_category()
+    owner = User(id=uuid.uuid4(), name="Owner", email="owner@techcorp.internal", password_hash="hash")
+    requester = User(
+        id=uuid.uuid4(), name="Requester", email="requester@techcorp.internal", password_hash="hash"
+    )
+    item = _make_item(category_id=category.id, current_owner_id=owner.id)
+    request = Request(
+        id=uuid.uuid4(),
+        requester_id=requester.id,
+        category_id=category.id,
+        assigned_item_id=item.id,
+        requested_from=_next_ts(),
+        requested_to=_next_ts(),
+        status=RequestStatus.ASSIGNED,
+    )
+    service, _ = _build_service(
+        items=[item], categories=[category], users=[owner, requester], requests=[request]
+    )
+
+    detail = await service.get_detail(item.id)
+
+    assert detail.current_request is not None
+    assert detail.current_request.requester_name == "Requester"

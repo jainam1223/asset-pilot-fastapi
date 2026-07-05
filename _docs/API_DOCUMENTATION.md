@@ -147,13 +147,25 @@ Response `data`:
 
 #### `POST /auth/login`
 **Used in:** login screen. Call this first with the IT-Admin's email/password; store both tokens (e.g. `access_token` in memory, `refresh_token` in secure storage) before navigating into A01.
-Request: `{ "email": "user@example.com", "password": "string" }`
-Response `data`: same `TokenResponse` shape as register.
+Request:
+```json
+{ "email": "user@example.com", "password": "string" }
+```
+Response `data`:
+```json
+{ "access_token": "string", "refresh_token": "string", "token_type": "bearer" }
+```
 
 #### `POST /auth/refresh`
 **Used in:** background token-refresh logic (e.g. an axios/fetch interceptor that catches a `401` or refreshes proactively before expiry). Not a user-visible action.
-Request: `{ "refresh_token": "string" }`
-Response `data`: same `TokenResponse` shape.
+Request:
+```json
+{ "refresh_token": "string" }
+```
+Response `data`:
+```json
+{ "access_token": "string", "refresh_token": "string", "token_type": "bearer" }
+```
 
 #### `GET /auth/me`
 **Used in:** app shell bootstrap — call once after login (or on app reload with a stored token) to populate the logged-in admin's name/avatar in the header and confirm the token is still valid/role is still `it_admin`.
@@ -189,14 +201,47 @@ Response `data`:
   "pending_extensions_count": 0
 }
 ```
+**FE derivation notes (no dedicated fields exist for these):**
+- `status_breakdown` intentionally excludes `returned_to_client` — there is no `total_devices` field. FE cannot compute a true "Total devices" tile from this response alone (it would undercount any `returned_to_client` items); treat "Total devices" as sum-of-breakdown-plus-caveat, or ask backend for a dedicated field if an exact total is required.
+- The A01 "In transit" KPI tile has no backing field — derive it client-side as `status_breakdown.shipping_pending + status_breakdown.return_shipping_pending`.
 
 #### `GET /admin/dashboard/recent-requests?limit=10`
 **Used in:** A01 "Recent Requests" widget. Row click should deep-link to A03 (`GET /admin/requests/{id}`) for that request's id.
-Response `data`: array of **RequestListEntryResponse** (see Requests module).
+Response `data`: array of **RequestListEntryResponse** (full shape defined under Requests module — `GET /admin/requests`):
+```json
+{
+  "id": "uuid", "requester_id": "uuid", "category_id": "uuid", "assigned_item_id": "uuid|null",
+  "requested_from": "datetime", "requested_to": "datetime",
+  "assigned_from": "datetime|null", "assigned_to": "datetime|null",
+  "status": "RequestStatus", "priority": "RequestPriority", "note": "string|null",
+  "requires_mgr_approval": true, "mgr_approval_status": "MgrApprovalStatus",
+  "manager_id": "uuid|null", "manager_decision_note": "string|null", "manager_decided_at": "datetime|null",
+  "it_decided_by": "uuid|null", "it_decision_note": "string|null", "it_decided_at": "datetime|null",
+  "rejected_by": "RejectedByEnum|null", "rejected_reason": "string|null",
+  "cancelled_by": "uuid|null", "cancelled_at": "datetime|null",
+  "is_wfh": false, "ship_tracking_url": "string|null", "ship_initiated_at": "datetime|null",
+  "ship_completed_at": "datetime|null", "return_tracking_url": "string|null",
+  "return_initiated_at": "datetime|null", "completed_at": "datetime|null",
+  "completed_by": "uuid|null", "completed_next_status": "DeviceStatus|null",
+  "is_client_direct": false, "created_at": "datetime", "updated_at": "datetime",
+  "category_name": "string", "requester_name": "string"
+}
+```
 
 #### `GET /admin/dashboard/open-support?limit=10`
 **Used in:** A01 "Open Support" widget. Row click should deep-link to A08 detail view for that ticket's id.
-Response `data`: array of **SupportListEntryResponse** (see Support module).
+Response `data`: array of **SupportListEntryResponse** (full shape defined under Support Requests module — `GET /admin/support-requests`):
+```json
+{
+  "id": "uuid", "item_id": "uuid", "requester_id": "uuid", "request_id": "uuid|null",
+  "type": "SupportType", "description": "string", "status": "SupportStatus",
+  "resolution": "SupportResolution|null", "it_note": "string|null",
+  "swapped_to_item_id": "uuid|null", "filed_at": "datetime",
+  "resolved_by": "uuid|null", "resolved_at": "datetime|null", "auto_closed": false,
+  "created_at": "datetime", "updated_at": "datetime",
+  "item_name": "string", "requester_name": "string"
+}
+```
 
 ---
 
@@ -226,7 +271,10 @@ Response `data`: array of **UserMeResponse**:
 
 #### `GET /admin/dropdowns/employees`
 **Used in:** A07 Direct Client Assignment — populates the "assign to employee" picker before calling `POST /admin/items/{id}/direct-assign`.
-Response `data`: array of **UserMeResponse** (`role: "employee"`).
+Response `data`: array of **UserMeResponse**, always `role: "employee"` here:
+```json
+{ "id": "uuid", "name": "string", "email": "string", "role": "employee", "manager_id": "uuid|null", "is_active": true }
+```
 
 ---
 
@@ -246,7 +294,7 @@ Response `data`: array of **UserMeResponse** (`role: "employee"`).
 
 #### `GET /admin/items`
 **Used in:** A04 Inventory table (main list + filters: category/status/owner-type/search) **and** A10 Maintenance screen — A10 is this same endpoint called with `status=under_repair` or `status=maintenance` to build its filtered table, not a separate backend concept.
-Query params: `category_id` (uuid), `status` (`DeviceStatus`), `owner_type` (`OwnerType`), `search` (string — matches device `name`/`serial_no`), plus pagination params.
+Query params: `category_id` (uuid), `status` (`DeviceStatus`), `owner_type` (`OwnerType`), `search` (string — matches device `name`/`serial_no`), plus pagination params. `status` accepts **one** value, not a list — A10's combined "Under Repair + Maintenance" table requires **two separate calls** (`status=under_repair` and `status=maintenance`) merged client-side; there is no OR-filter for multiple statuses in one request.
 Response `data`: array of **ItemListEntryResponse**:
 ```json
 {
@@ -257,7 +305,7 @@ Response `data`: array of **ItemListEntryResponse**:
   "category_name": "string", "current_owner_name": "string|null"
 }
 ```
-`meta.pagination` included.
+`meta.pagination` included. Note: `updated_at` is a generic last-modified timestamp (also bumped by unrelated metadata edits via `PATCH .../{item_id}`) — if A04/A10's "Set at" column is meant to show the exact status-change time, it's only approximate here; the precise moment is in `GET .../{item_id}/timeline`.
 
 #### `POST /admin/items` (201)
 **Used in:** A04 "Add Device" form submit.
@@ -269,12 +317,30 @@ Request:
   "purchase_date": "2026-01-01|null"
 }
 ```
-Response `data`: **ItemResponse** (same fields as `ItemListEntryResponse` minus `category_name`/`current_owner_name`). After success, refetch or optimistically prepend to the A04 list.
+Response `data`: **ItemResponse**:
+```json
+{
+  "id": "uuid", "name": "string", "serial_no": "string", "category_id": "uuid",
+  "owner_type": "company|client", "client_name": "string|null", "status": "DeviceStatus",
+  "current_owner_id": "uuid|null", "purchase_date": "2026-01-01|null", "qr_code_token": "uuid",
+  "created_at": "datetime", "updated_at": "datetime"
+}
+```
+After success, refetch or optimistically prepend to the A04 list.
 
 #### `GET /admin/items/client-available`
 **Used in:** A07 Direct Client Assignment — populates the device picker (client-owned devices only, already filtered to `available`) before `POST /admin/items/{id}/direct-assign`.
 Query params: `category_id` (uuid, optional), `search` (string, optional).
-Response `data`: array of **ClientAvailableResponse** (`ItemResponse` fields + `category_name`).
+Response `data`: array of **ClientAvailableResponse** (`ItemResponse` fields + `category_name`):
+```json
+{
+  "id": "uuid", "name": "string", "serial_no": "string", "category_id": "uuid",
+  "owner_type": "company|client", "client_name": "string|null", "status": "DeviceStatus",
+  "current_owner_id": "uuid|null", "purchase_date": "2026-01-01|null", "qr_code_token": "uuid",
+  "created_at": "datetime", "updated_at": "datetime", "category_name": "string"
+}
+```
+Note: server-side filtering is `owner_type=client` **and** `status=available` — this is implicit (not a query param); FE doesn't need to (and can't) pass `status` here.
 
 #### `PATCH /admin/items/{item_id}`
 **Used in:** A04/A05 "Edit Device" form submit (name/category/client_name/purchase_date).
@@ -282,7 +348,7 @@ Request (all optional, partial update):
 ```json
 { "name": "string", "category_id": "uuid", "client_name": "string", "purchase_date": "date" }
 ```
-`name`/`category_id` cannot be explicitly set to `null` if included. Response `data`: **ItemResponse**.
+`name`/`category_id` cannot be explicitly set to `null` if included. Response `data`: **ItemResponse** (same shape as `POST /admin/items` above).
 
 #### `PATCH /admin/items/{item_id}/status`
 **Used in:** the "Change Status" modal shared by A04, A05, and A10 (e.g. A10's Repair-queue row action opens this same modal, pre-filled with the target status).
@@ -290,7 +356,7 @@ Request:
 ```json
 { "status": "available|under_repair|maintenance|lost|retired|returned_to_client", "it_note": "string|null" }
 ```
-Response `data`: **ItemResponse**.
+Response `data`: **ItemResponse** (same shape as `POST /admin/items` above).
 
 #### `GET /admin/items/{item_id}`
 **Used in:** A05 Device Detail screen — the primary load call when navigating from A04's device row.
@@ -305,6 +371,53 @@ Response `data`:
   "active_handover": HandoverSummaryResponse | null
 }
 ```
+`ItemResponse`, `ItemCategoryResponse`, and `UserMeResponse` here are the same shapes already defined above (`POST /admin/items` response, `GET /admin/dropdowns/item-categories` response, `GET /auth/me` response respectively).
+
+`RequestSummaryResponse` (nested in `current_request`) carries `requester_name` alongside `requester_id`, resolved server-side, so A05's "Current Assignment" panel ("Requester: Arjun Mehta") can render directly — no client-side id→name join needed. This is independent of the item's own `current_owner` (usually the same person, but resolved separately since the request's requester and the device's current owner are structurally different fields):
+```json
+{
+  "id": "uuid", "requester_id": "uuid", "requester_name": "string|null", "category_id": "uuid",
+  "assigned_item_id": "uuid|null", "requested_from": "datetime", "requested_to": "datetime",
+  "assigned_from": "datetime|null", "assigned_to": "datetime|null",
+  "status": "RequestStatus", "priority": "RequestPriority", "note": "string|null",
+  "requires_mgr_approval": true, "mgr_approval_status": "MgrApprovalStatus",
+  "manager_id": "uuid|null", "manager_decision_note": "string|null", "manager_decided_at": "datetime|null",
+  "it_decided_by": "uuid|null", "it_decision_note": "string|null", "it_decided_at": "datetime|null",
+  "rejected_by": "RejectedByEnum|null", "rejected_reason": "string|null",
+  "cancelled_by": "uuid|null", "cancelled_at": "datetime|null",
+  "is_wfh": false, "ship_tracking_url": "string|null", "ship_initiated_at": "datetime|null",
+  "ship_completed_at": "datetime|null", "return_tracking_url": "string|null",
+  "return_initiated_at": "datetime|null", "completed_at": "datetime|null",
+  "completed_by": "uuid|null", "completed_next_status": "DeviceStatus|null",
+  "is_client_direct": false, "created_at": "datetime", "updated_at": "datetime"
+}
+```
+
+`SupportRequestSummaryResponse` (nested array in `open_support`) — same field set as the bare `SupportRequestResponse` shown under `PATCH /admin/support-requests/{id}/start` below, no extra name fields:
+```json
+{
+  "id": "uuid", "item_id": "uuid", "requester_id": "uuid", "request_id": "uuid|null",
+  "type": "SupportType", "description": "string", "status": "SupportStatus",
+  "resolution": "SupportResolution|null", "it_note": "string|null",
+  "swapped_to_item_id": "uuid|null", "filed_at": "datetime",
+  "resolved_by": "uuid|null", "resolved_at": "datetime|null", "auto_closed": false,
+  "created_at": "datetime", "updated_at": "datetime"
+}
+```
+
+`HandoverSummaryResponse` (nested in `active_handover`) also carries `owner_name`/`borrower_name` (resolved server-side alongside `owner_id`/`borrower_id`) so A05's "Active Handover" panel (e.g. "Borrower · Karan Shah") can render directly — no client-side id→name join needed:
+```json
+{
+  "id": "uuid", "item_id": "uuid",
+  "owner_id": "uuid", "owner_name": "string|null",
+  "borrower_id": "uuid", "borrower_name": "string|null",
+  "requested_duration_hours": 0, "status": "HandoverStatus",
+  "requested_at": "datetime", "decided_at": "datetime|null", "completed_at": "datetime|null",
+  "note": "string|null", "created_at": "datetime", "updated_at": "datetime"
+}
+```
+
+A05's "Process Return" button is **not** an `/admin/items/*` action — it maps to `POST /admin/requests/{request_id}/complete-return` in the Shipping & Returns module below (using `current_request.id`).
 
 #### `GET /admin/items/{item_id}/timeline`
 **Used in:** A06 Device Timeline — a tab/section within A05. Timeline is append-only (no edit/delete UI needed for entries).
@@ -313,16 +426,37 @@ Response `data`: array of **DeviceLogEntryResponse**:
 ```json
 {
   "id": "uuid", "item_id": "uuid", "event_type": "DeviceLogEvent", "actor_id": "uuid|null",
-  "actor_role": "ActorRole", "request_id": "uuid|null", "support_request_id": "uuid|null",
-  "extension_request_id": "uuid|null", "handover_request_id": "uuid|null",
+  "actor_name": "string|null", "actor_role": "ActorRole", "request_id": "uuid|null",
+  "support_request_id": "uuid|null", "extension_request_id": "uuid|null", "handover_request_id": "uuid|null",
   "from_value": "string|null", "to_value": "string|null", "note": "string|null",
   "metadata": {}, "is_milestone": true, "occurred_at": "datetime"
 }
 ```
+`actor_name` is resolved server-side (left-joined on `actor_id`) so A06's "Actor: Arjun Mehta" labels render directly — no FE id→name lookup needed. It's `null` when `actor_id` is `null` (system-generated events, `actor_role: "system"`).
+Note: `request_id`/`support_request_id`/etc. are raw UUIDs — there is no short sequential number (e.g. `#2018`) anywhere in the API; if the mockup's numbering is needed, it must be a FE-only display convention (e.g. last 6 chars of the UUID), not a real sequence.
 
 #### `GET /admin/items/{item_id}/bookings`
 **Used in:** A05 "Booking Calendar" widget for a device, and the calendar strip shown on A03 while assigning a device (so IT can see a candidate device's existing reservations before picking it).
-Response `data`: array of **BookingResponse** (`RequestResponse` fields + `requester_name`).
+Response `data`: array of **BookingResponse** (`RequestResponse` fields + `requester_name`):
+```json
+{
+  "id": "uuid", "requester_id": "uuid", "category_id": "uuid", "assigned_item_id": "uuid|null",
+  "requested_from": "datetime", "requested_to": "datetime",
+  "assigned_from": "datetime|null", "assigned_to": "datetime|null",
+  "status": "RequestStatus", "priority": "RequestPriority", "note": "string|null",
+  "requires_mgr_approval": true, "mgr_approval_status": "MgrApprovalStatus",
+  "manager_id": "uuid|null", "manager_decision_note": "string|null", "manager_decided_at": "datetime|null",
+  "it_decided_by": "uuid|null", "it_decision_note": "string|null", "it_decided_at": "datetime|null",
+  "rejected_by": "RejectedByEnum|null", "rejected_reason": "string|null",
+  "cancelled_by": "uuid|null", "cancelled_at": "datetime|null",
+  "is_wfh": false, "ship_tracking_url": "string|null", "ship_initiated_at": "datetime|null",
+  "ship_completed_at": "datetime|null", "return_tracking_url": "string|null",
+  "return_initiated_at": "datetime|null", "completed_at": "datetime|null",
+  "completed_by": "uuid|null", "completed_next_status": "DeviceStatus|null",
+  "is_client_direct": false, "created_at": "datetime", "updated_at": "datetime",
+  "requester_name": "string"
+}
+```
 
 #### `POST /admin/items/{item_id}/direct-assign` (201)
 **Used in:** A07 Direct Client Assignment form submit — after picking an employee (`/admin/dropdowns/employees`) and an available client device (`/admin/items/client-available`).
@@ -330,7 +464,26 @@ Request:
 ```json
 { "employee_id": "uuid", "assigned_from": "datetime", "assigned_to": "datetime" }
 ```
-(`assigned_from` must be before `assigned_to`.) Response `data`: **RequestResponse** (the auto-created, already-`assigned` request record — no separate approval step for client-direct assignments).
+`assigned_from`/`assigned_to` are full ISO-8601 datetimes (not date-only) even though the mockup's pickers show date-only values — FE should submit a time component (e.g. midnight local/UTC). `assigned_from` must be before `assigned_to`. Response `data`: **RequestResponse** (the auto-created, already-`assigned` request record — no separate approval step for client-direct assignments):
+```json
+{
+  "id": "uuid", "requester_id": "uuid", "category_id": "uuid", "assigned_item_id": "uuid|null",
+  "requested_from": "datetime", "requested_to": "datetime",
+  "assigned_from": "datetime|null", "assigned_to": "datetime|null",
+  "status": "RequestStatus", "priority": "RequestPriority", "note": "string|null",
+  "requires_mgr_approval": true, "mgr_approval_status": "MgrApprovalStatus",
+  "manager_id": "uuid|null", "manager_decision_note": "string|null", "manager_decided_at": "datetime|null",
+  "it_decided_by": "uuid|null", "it_decision_note": "string|null", "it_decided_at": "datetime|null",
+  "rejected_by": "RejectedByEnum|null", "rejected_reason": "string|null",
+  "cancelled_by": "uuid|null", "cancelled_at": "datetime|null",
+  "is_wfh": false, "ship_tracking_url": "string|null", "ship_initiated_at": "datetime|null",
+  "ship_completed_at": "datetime|null", "return_tracking_url": "string|null",
+  "return_initiated_at": "datetime|null", "completed_at": "datetime|null",
+  "completed_by": "uuid|null", "completed_next_status": "DeviceStatus|null",
+  "is_client_direct": false, "created_at": "datetime", "updated_at": "datetime"
+}
+```
+There is **no `note` field** on this request — the mockup's Assignment Form "Note" textarea has nothing to bind to; the created request's `note` is always `null`. Treat it as unsupported until backend adds it, or drop the field from this form.
 
 ---
 
@@ -377,44 +530,104 @@ Response `data`: array of **RequestListEntryResponse**:
 
 #### `GET /admin/requests/{request_id}`
 **Used in:** A03 Request Detail screen load.
-Response `data`: **RequestDetailResponse** — all `RequestResponse` fields plus:
+Response `data`: **RequestDetailResponse** — all `RequestResponse` fields plus extras, flattened:
 ```json
 {
+  "id": "uuid", "requester_id": "uuid", "category_id": "uuid", "assigned_item_id": "uuid|null",
+  "requested_from": "datetime", "requested_to": "datetime",
+  "assigned_from": "datetime|null", "assigned_to": "datetime|null",
+  "status": "RequestStatus", "priority": "RequestPriority", "note": "string|null",
+  "requires_mgr_approval": true, "mgr_approval_status": "MgrApprovalStatus",
+  "manager_id": "uuid|null", "manager_decision_note": "string|null", "manager_decided_at": "datetime|null",
+  "it_decided_by": "uuid|null", "it_decision_note": "string|null", "it_decided_at": "datetime|null",
+  "rejected_by": "RejectedByEnum|null", "rejected_reason": "string|null",
+  "cancelled_by": "uuid|null", "cancelled_at": "datetime|null",
+  "is_wfh": false, "ship_tracking_url": "string|null", "ship_initiated_at": "datetime|null",
+  "ship_completed_at": "datetime|null", "return_tracking_url": "string|null",
+  "return_initiated_at": "datetime|null", "completed_at": "datetime|null",
+  "completed_by": "uuid|null", "completed_next_status": "DeviceStatus|null",
+  "is_client_direct": false, "created_at": "datetime", "updated_at": "datetime",
   "category_name": "string", "requester_name": "string",
   "manager_name": "string|null", "it_decided_by_name": "string|null",
   "cancelled_by_name": "string|null", "completed_by_name": "string|null",
-  "item": AssignedItemSummaryResponse | null
+  "item": {
+    "id": "uuid", "name": "string", "serial_no": "string", "category_id": "uuid",
+    "owner_type": "company|client", "client_name": "string|null", "status": "DeviceStatus",
+    "current_owner_id": "uuid|null", "purchase_date": "2026-01-01|null", "qr_code_token": "uuid"
+  }
 }
 ```
-`AssignedItemSummaryResponse`: `{ id, name, serial_no, category_id, owner_type, client_name, status, current_owner_id, purchase_date, qr_code_token }`.
+`item` is `AssignedItemSummaryResponse | null` — `null` while the request has no assigned device yet (e.g. `requested`/`pending_*_approval` states), otherwise the object shown above.
 
 #### `GET /admin/it/approvals`
 **Used in:** A02's dedicated "IT Approval Queue" tab/filter — the sidebar/queue badge count comes from `pending_requests_count` on A01, this endpoint returns the actual rows, pre-sorted by priority then oldest-first. No status filter param needed — it's always scoped to `pending_it_approval`.
-Paginated, no filters. Response `data`: array of **RequestListEntryResponse**.
+Paginated, no filters. Response `data`: array of **RequestListEntryResponse** — identical shape to `GET /admin/requests` above.
+
+**A02 status tab-chip counts** ("All · 312", "Pending RM · 12", "Pending IT · 16", etc., see mockup): there is no aggregate "counts by status" endpoint. `GET /admin/requests` only returns `meta.pagination.total_items` for whichever single `status` filter is currently applied. To populate all tab-chip counts simultaneously, FE must issue one `GET /admin/requests?status=X&page_size=1` call per status (reading `total_items` from each), or accept an approximate/lazy-loaded count per tab. Flag to backend if a single aggregate endpoint is wanted instead.
 
 #### `PATCH /admin/requests/{request_id}/reject`
 **Used in:** A03 "Reject" action — only valid while the request is `pending_it_approval`.
-Request: `{ "rejected_reason": "string", "it_decision_note": "string|null" }`
-Response `data`: **RequestResponse**.
+Request:
+```json
+{ "rejected_reason": "string", "it_decision_note": "string|null" }
+```
+Response `data`: **RequestResponse** (bare, no `category_name`/`requester_name` — same base fields as `GET /admin/requests` minus those two):
+```json
+{
+  "id": "uuid", "requester_id": "uuid", "category_id": "uuid", "assigned_item_id": "uuid|null",
+  "requested_from": "datetime", "requested_to": "datetime",
+  "assigned_from": "datetime|null", "assigned_to": "datetime|null",
+  "status": "RequestStatus", "priority": "RequestPriority", "note": "string|null",
+  "requires_mgr_approval": true, "mgr_approval_status": "MgrApprovalStatus",
+  "manager_id": "uuid|null", "manager_decision_note": "string|null", "manager_decided_at": "datetime|null",
+  "it_decided_by": "uuid|null", "it_decision_note": "string|null", "it_decided_at": "datetime|null",
+  "rejected_by": "RejectedByEnum|null", "rejected_reason": "string|null",
+  "cancelled_by": "uuid|null", "cancelled_at": "datetime|null",
+  "is_wfh": false, "ship_tracking_url": "string|null", "ship_initiated_at": "datetime|null",
+  "ship_completed_at": "datetime|null", "return_tracking_url": "string|null",
+  "return_initiated_at": "datetime|null", "completed_at": "datetime|null",
+  "completed_by": "uuid|null", "completed_next_status": "DeviceStatus|null",
+  "is_client_direct": false, "created_at": "datetime", "updated_at": "datetime"
+}
+```
+This bare `RequestResponse` shape is reused verbatim by every other `RequestResponse`-returning endpoint below (`cancel`, `escalate-to-manager`, `booking-range`, `assign`, and the Shipping & Returns module's `ship`/`confirm-delivery`/`complete-return`).
 
 #### `PATCH /admin/requests/{request_id}/cancel`
 **Used in:** A03 "Cancel" action — usable while the request is in any non-terminal state (unlike reject, which requires `pending_it_approval`).
-Request: `{ "rejected_reason": "string" }`
-Response `data`: **RequestResponse**.
+Request:
+```json
+{ "rejected_reason": "string" }
+```
+Response `data`: **RequestResponse** (same bare shape as `reject` above).
 
 #### `PATCH /admin/requests/{request_id}/escalate-to-manager`
 **Used in:** A03 "Escalate to Manager" action, paired with the `/admin/dropdowns/managers` picker. Only valid when the request doesn't already require manager approval.
-Request: `{ "manager_id": "uuid|null" }` — omit to default to the requester's own manager.
-Response `data`: **RequestResponse**.
+Request:
+```json
+{ "manager_id": "uuid|null" }
+```
+Omit `manager_id` to default to the requester's own manager. Response `data`: **RequestResponse** (same bare shape as `reject` above).
 
 #### `GET /admin/requests/{request_id}/suggested-devices`
 **Used in:** A03's device-picker panel (labelled "AI ranking" in the mockup, but it's a deterministic sort by fewest active bookings then longest-free — no ML). Call on entering the Assign flow; IT picks one of the returned devices, optionally checks its calendar (`/admin/items/{id}/bookings`), then adjusts dates and confirms via `/assign`.
-Response `data`: array of **SuggestedDeviceResponse** (`ItemResponse` fields + `category_name`, `active_bookings_count`).
+Response `data`: array of **SuggestedDeviceResponse** (`ItemResponse` fields + `category_name`, `active_bookings_count`):
+```json
+{
+  "id": "uuid", "name": "string", "serial_no": "string", "category_id": "uuid",
+  "owner_type": "company|client", "client_name": "string|null", "status": "DeviceStatus",
+  "current_owner_id": "uuid|null", "purchase_date": "2026-01-01|null", "qr_code_token": "uuid",
+  "created_at": "datetime", "updated_at": "datetime",
+  "category_name": "string", "active_bookings_count": 0
+}
+```
 
 #### `PATCH /admin/requests/{request_id}/booking-range`
 **Used in:** A03 "Adjust dates" on an already-`assigned` request (post-assignment date correction), not part of the initial assign form itself.
-Request: `{ "assigned_from": "datetime", "assigned_to": "datetime" }` (from must be before to).
-Response `data`: **RequestResponse**.
+Request:
+```json
+{ "assigned_from": "datetime", "assigned_to": "datetime" }
+```
+`assigned_from` must be before `assigned_to`. Response `data`: **RequestResponse** (same bare shape as `reject` above).
 
 #### `POST /admin/requests/{request_id}/assign`
 **Used in:** A03 "Confirm Assignment" — final step of the assign flow after picking a device from `suggested-devices` and setting dates/WFH toggle.
@@ -422,7 +635,7 @@ Request:
 ```json
 { "item_id": "uuid", "assigned_from": "datetime", "assigned_to": "datetime", "is_wfh": false }
 ```
-Response `data`: **RequestResponse**. If `is_wfh: true`, the request now needs shipping (A09) as a separate follow-up step — assigning does not auto-ship.
+Response `data`: **RequestResponse** (same bare shape as `reject` above). If `is_wfh: true`, the request now needs shipping (A09) as a separate follow-up step — assigning does not auto-ship.
 
 ---
 
@@ -440,25 +653,73 @@ WFH device shipping lifecycle: outbound queue → ship → confirm delivery; sep
 
 #### `GET /admin/shipping/outbound`
 **Used in:** A09 "Outbound" tab — WFH requests that are `assigned` but not yet shipped.
-No query params. Response `data`: array of **ShippingQueueEntryResponse** (`RequestResponse` fields + `item_name`, `requester_name`).
+No query params (no search/date-range filtering exists here). Response `data`: array of **ShippingQueueEntryResponse** (`RequestResponse` fields + `item_name`, `requester_name`):
+```json
+{
+  "id": "uuid", "requester_id": "uuid", "category_id": "uuid", "assigned_item_id": "uuid|null",
+  "requested_from": "datetime", "requested_to": "datetime",
+  "assigned_from": "datetime|null", "assigned_to": "datetime|null",
+  "status": "RequestStatus", "priority": "RequestPriority", "note": "string|null",
+  "requires_mgr_approval": true, "mgr_approval_status": "MgrApprovalStatus",
+  "manager_id": "uuid|null", "manager_decision_note": "string|null", "manager_decided_at": "datetime|null",
+  "it_decided_by": "uuid|null", "it_decision_note": "string|null", "it_decided_at": "datetime|null",
+  "rejected_by": "RejectedByEnum|null", "rejected_reason": "string|null",
+  "cancelled_by": "uuid|null", "cancelled_at": "datetime|null",
+  "is_wfh": false, "ship_tracking_url": "string|null", "ship_initiated_at": "datetime|null",
+  "ship_completed_at": "datetime|null", "return_tracking_url": "string|null",
+  "return_initiated_at": "datetime|null", "completed_at": "datetime|null",
+  "completed_by": "uuid|null", "completed_next_status": "DeviceStatus|null",
+  "is_client_direct": false, "created_at": "datetime", "updated_at": "datetime",
+  "item_name": "string", "requester_name": "string"
+}
+```
+The mockup's "Outbound in transit N" header counter has no dedicated endpoint — derive it client-side from the returned array's length.
 
 #### `GET /admin/shipping/returns`
 **Used in:** A09 "Returns" tab — devices currently `return_shipping_pending`.
-No query params. Response `data`: array of **ShippingQueueEntryResponse**.
+No query params. Response `data`: array of **ShippingQueueEntryResponse** — same shape as `GET /admin/shipping/outbound` above. Same client-side-count note applies to "Returns in transit N".
 
 #### `POST /admin/requests/{request_id}/ship`
 **Used in:** A09 Outbound row action "Mark Shipped" — opens a tracking-URL input, then calls this.
-Request: `{ "ship_tracking_url": "string" }`
-Response `data`: **RequestResponse**. Moves the row from "awaiting ship" to an in-transit state; device status becomes `shipping_pending`.
+Request:
+```json
+{ "ship_tracking_url": "string" }
+```
+Response `data`: **RequestResponse** (bare shape — same as `PATCH /admin/requests/{id}/reject` response in the Requests & Approvals module above):
+```json
+{
+  "id": "uuid", "requester_id": "uuid", "category_id": "uuid", "assigned_item_id": "uuid|null",
+  "requested_from": "datetime", "requested_to": "datetime",
+  "assigned_from": "datetime|null", "assigned_to": "datetime|null",
+  "status": "RequestStatus", "priority": "RequestPriority", "note": "string|null",
+  "requires_mgr_approval": true, "mgr_approval_status": "MgrApprovalStatus",
+  "manager_id": "uuid|null", "manager_decision_note": "string|null", "manager_decided_at": "datetime|null",
+  "it_decided_by": "uuid|null", "it_decision_note": "string|null", "it_decided_at": "datetime|null",
+  "rejected_by": "RejectedByEnum|null", "rejected_reason": "string|null",
+  "cancelled_by": "uuid|null", "cancelled_at": "datetime|null",
+  "is_wfh": false, "ship_tracking_url": "string|null", "ship_initiated_at": "datetime|null",
+  "ship_completed_at": "datetime|null", "return_tracking_url": "string|null",
+  "return_initiated_at": "datetime|null", "completed_at": "datetime|null",
+  "completed_by": "uuid|null", "completed_next_status": "DeviceStatus|null",
+  "is_client_direct": false, "created_at": "datetime", "updated_at": "datetime"
+}
+```
+Moves the row from "awaiting ship" to an in-transit state; device status becomes `shipping_pending`.
+Preconditions (`422`/`409` — build inline errors, not generic toasts): the request must have `is_wfh: true` (422 if not a WFH request); the device's current status must be `assigned` (409 otherwise).
 
 #### `POST /admin/requests/{request_id}/confirm-delivery`
 **Used in:** A09 Outbound row action "Confirm Delivery" — call once the carrier confirms drop-off; no form needed.
-No body. Response `data`: **RequestResponse**. Device status returns to `assigned`.
+No body. Response `data`: **RequestResponse** (bare shape, same as `ship` above). Device status returns to `assigned`.
+Precondition: device status must be `shipping_pending` (409 otherwise).
 
 #### `POST /admin/requests/{request_id}/complete-return`
 **Used in:** A09 Returns row action "Complete Return" — opens a "next status" selector (`available` / `under_repair` / `retired`) then calls this.
-Request: `{ "next_status": "available|under_repair|retired" }`
-Response `data`: **RequestResponse**. Note: this also auto-closes any open/in-progress support tickets on the device — refresh A08's list if it's open in another tab.
+Request:
+```json
+{ "next_status": "available|under_repair|retired" }
+```
+Response `data`: **RequestResponse** (bare shape, same as `ship` above). Note: this also auto-closes any open/in-progress support tickets on the device — refresh A08's list if it's open in another tab.
+Precondition: device status must be `assigned` or `return_shipping_pending` (409 otherwise).
 
 ---
 
@@ -486,14 +747,46 @@ Response `data`: array of **SupportListEntryResponse**:
   "item_name": "string", "requester_name": "string"
 }
 ```
+**FE label mapping gap:** `SupportType` is only `update|damage|lost` — the A08 mockup's type badges show "Replace" / "Install" / "Repair" / "Lost", three of which don't match a backend enum value 1:1. FE must map its display labels onto this 3-value enum (e.g. Replace/Repair → `damage`, Install → `update`) rather than expecting a wider enum from the API.
 
 #### `GET /admin/support-requests/{support_request_id}`
 **Used in:** A08 ticket detail/resolve panel, opened from a row click.
-Response `data`: **SupportDetailResponse** — `SupportRequestResponse` fields + `item: ItemResponse`, `requester: UserResponse`.
+Response `data`: **SupportDetailResponse** — bare `SupportRequestResponse` fields + `item: ItemResponse`, `requester: UserResponse`:
+```json
+{
+  "id": "uuid", "item_id": "uuid", "requester_id": "uuid", "request_id": "uuid|null",
+  "type": "SupportType", "description": "string", "status": "SupportStatus",
+  "resolution": "SupportResolution|null", "it_note": "string|null",
+  "swapped_to_item_id": "uuid|null", "filed_at": "datetime",
+  "resolved_by": "uuid|null", "resolved_at": "datetime|null", "auto_closed": false,
+  "created_at": "datetime", "updated_at": "datetime",
+  "item": {
+    "id": "uuid", "name": "string", "serial_no": "string", "category_id": "uuid",
+    "owner_type": "company|client", "client_name": "string|null", "status": "DeviceStatus",
+    "current_owner_id": "uuid|null", "purchase_date": "2026-01-01|null", "qr_code_token": "uuid",
+    "created_at": "datetime", "updated_at": "datetime"
+  },
+  "requester": {
+    "id": "uuid", "name": "string", "email": "string", "role": "UserRole",
+    "manager_id": "uuid|null", "is_active": true, "created_at": "datetime", "updated_at": "datetime"
+  }
+}
+```
 
 #### `PATCH /admin/support-requests/{support_request_id}/start`
 **Used in:** A08 "Start" button on an `open` ticket. No form.
-No body. Response `data`: **SupportRequestResponse**. If ticket `type = damage`, the underlying device flips to `under_repair` as a side effect.
+No body. Response `data`: **SupportRequestResponse** (bare, no `item_name`/`requester_name`):
+```json
+{
+  "id": "uuid", "item_id": "uuid", "requester_id": "uuid", "request_id": "uuid|null",
+  "type": "SupportType", "description": "string", "status": "SupportStatus",
+  "resolution": "SupportResolution|null", "it_note": "string|null",
+  "swapped_to_item_id": "uuid|null", "filed_at": "datetime",
+  "resolved_by": "uuid|null", "resolved_at": "datetime|null", "auto_closed": false,
+  "created_at": "datetime", "updated_at": "datetime"
+}
+```
+If ticket `type = damage`, the underlying device flips to `under_repair` as a side effect.
 
 #### `PATCH /admin/support-requests/{support_request_id}/resolve`
 **Used in:** A08 "Resolve" panel — the resolution dropdown drives which extra fields the form shows: picking `swapped` reveals a replacement-device picker and an "old device next status" selector.
@@ -506,7 +799,13 @@ Request:
   "old_item_next_status": "DeviceStatus|null"
 }
 ```
-`swapped_to_item_id` and `old_item_next_status` are **required** when `resolution` is `swapped`. Response `data`: **SupportRequestResponse**. Note: `marked_lost` also completes the tied request server-side — no separate "complete request" call needed.
+`swapped_to_item_id` and `old_item_next_status` are **required** when `resolution` is `swapped`. Response `data`: **SupportRequestResponse** (same bare shape as `start` above). Note: `marked_lost` also completes the tied request server-side — no separate "complete request" call needed.
+
+Preconditions/errors to build inline UI for (all `409 CONFLICT` unless noted):
+- Ticket must not already be `resolved` (409 if resolving twice).
+- `resolution=swapped` or `resolution=marked_lost` requires the ticket to have a tied `request_id` — 409 if it's `null` (e.g. a ticket filed with no linked request can't be swapped/marked-lost).
+- `remote_resolved` performs **no device status change** — the device keeps its current status; only `repaired_in_place`/`swapped`/`marked_lost` transition the device.
+- `old_item_next_status` currently accepts **any** `DeviceStatus` value with no allow-list (unlike `complete-return`'s `next_status`, which is restricted to `available|under_repair|retired`). The mockup's selector implies a curated list (e.g. "Under repair") — FE should constrain its own dropdown to sensible values until/unless backend adds the same restriction.
 
 ---
 
@@ -538,17 +837,70 @@ Query param: `status` (`ExtensionStatus`, optional). Response `data`: array of *
 
 #### `GET /admin/extension-requests/{extension_request_id}`
 **Used in:** A11 row-click detail panel.
-Response `data`: **ExtensionDetailResponse** — `ExtensionRequestResponse` fields + `request: RequestResponse`, `item: ItemResponse`, `requester: UserResponse`.
+Response `data`: **ExtensionDetailResponse** — bare `ExtensionRequestResponse` fields + `request: RequestResponse`, `item: ItemResponse`, `requester: UserResponse`:
+```json
+{
+  "id": "uuid", "original_request_id": "uuid", "requester_id": "uuid",
+  "current_assigned_to": "datetime", "extended_to": "datetime", "status": "ExtensionStatus",
+  "requires_mgr_approval": true, "manager_id": "uuid|null", "mgr_approval_status": "MgrApprovalStatus",
+  "manager_note": "string|null", "manager_decided_at": "datetime|null",
+  "it_decided_by": "uuid|null", "it_note": "string|null", "it_decided_at": "datetime|null",
+  "created_at": "datetime", "updated_at": "datetime",
+  "request": {
+    "id": "uuid", "requester_id": "uuid", "category_id": "uuid", "assigned_item_id": "uuid|null",
+    "requested_from": "datetime", "requested_to": "datetime",
+    "assigned_from": "datetime|null", "assigned_to": "datetime|null",
+    "status": "RequestStatus", "priority": "RequestPriority", "note": "string|null",
+    "requires_mgr_approval": true, "mgr_approval_status": "MgrApprovalStatus",
+    "manager_id": "uuid|null", "manager_decision_note": "string|null", "manager_decided_at": "datetime|null",
+    "it_decided_by": "uuid|null", "it_decision_note": "string|null", "it_decided_at": "datetime|null",
+    "rejected_by": "RejectedByEnum|null", "rejected_reason": "string|null",
+    "cancelled_by": "uuid|null", "cancelled_at": "datetime|null",
+    "is_wfh": false, "ship_tracking_url": "string|null", "ship_initiated_at": "datetime|null",
+    "ship_completed_at": "datetime|null", "return_tracking_url": "string|null",
+    "return_initiated_at": "datetime|null", "completed_at": "datetime|null",
+    "completed_by": "uuid|null", "completed_next_status": "DeviceStatus|null",
+    "is_client_direct": false, "created_at": "datetime", "updated_at": "datetime"
+  },
+  "item": {
+    "id": "uuid", "name": "string", "serial_no": "string", "category_id": "uuid",
+    "owner_type": "company|client", "client_name": "string|null", "status": "DeviceStatus",
+    "current_owner_id": "uuid|null", "purchase_date": "2026-01-01|null", "qr_code_token": "uuid",
+    "created_at": "datetime", "updated_at": "datetime"
+  },
+  "requester": {
+    "id": "uuid", "name": "string", "email": "string", "role": "UserRole",
+    "manager_id": "uuid|null", "is_active": true, "created_at": "datetime", "updated_at": "datetime"
+  }
+}
+```
 
 #### `PATCH /admin/extension-requests/{extension_request_id}/approve`
 **Used in:** A11 "Approve" action. Only valid when `mgr_approval_status` is `not_required` or `approved` — if a manager approval is still `pending`, the FE should disable this button and show why.
-Request: `{ "it_note": "string|null" }`
-Response `data`: **ExtensionRequestResponse**. Approving pushes the new end date onto the parent request (`assigned_to`) automatically.
+Request:
+```json
+{ "it_note": "string|null" }
+```
+Response `data`: **ExtensionRequestResponse** (bare, no `item_name`/`requester_name`):
+```json
+{
+  "id": "uuid", "original_request_id": "uuid", "requester_id": "uuid",
+  "current_assigned_to": "datetime", "extended_to": "datetime", "status": "ExtensionStatus",
+  "requires_mgr_approval": true, "manager_id": "uuid|null", "mgr_approval_status": "MgrApprovalStatus",
+  "manager_note": "string|null", "manager_decided_at": "datetime|null",
+  "it_decided_by": "uuid|null", "it_note": "string|null", "it_decided_at": "datetime|null",
+  "created_at": "datetime", "updated_at": "datetime"
+}
+```
+Approving pushes the new end date onto the parent request (`assigned_to`) automatically.
 
 #### `PATCH /admin/extension-requests/{extension_request_id}/reject`
-**Used in:** A11 "Reject" action.
-Request: `{ "it_note": "string|null" }`
-Response `data`: **ExtensionRequestResponse**.
+**Used in:** A11 "Reject" action. Only valid while `status` is `pending` — 409 if already approved/rejected (e.g. don't allow rejecting a decided extension).
+Request:
+```json
+{ "it_note": "string|null" }
+```
+Response `data`: **ExtensionRequestResponse** (same bare shape as `approve` above).
 
 ---
 
@@ -563,6 +915,7 @@ Peer-to-peer device handovers are requested/accepted by employees directly (not 
 #### `GET /admin/handover-requests`
 **Used in:** A12 audit table. Filter by `item_id` when reached via a "view handover history" link from A05 Device Detail.
 Query params: `status` (`HandoverStatus`), `item_id` (uuid). Response `data`: array of **HandoverListItem**:
+There is **no per-handover detail endpoint** (`GET /admin/handover-requests/{id}`) — the list already carries every field needed for a row, so a detail drill-down isn't required. A12's per-row "Timeline" action should call the device's own audit log — `GET /admin/items/{item_id}/timeline` — not a handover-specific endpoint that doesn't exist.
 ```json
 {
   "id": "uuid", "item_id": "uuid", "owner_id": "uuid", "borrower_id": "uuid",
@@ -580,10 +933,12 @@ Query params: `status` (`HandoverStatus`), `item_id` (uuid). Response `data`: ar
 | Method | Path | Paginated | Description |
 |---|---|---|---|
 | GET | `/admin/users` | yes | List users with filters. |
-| POST | `/admin/users` | — | Create a user (no password — see note). |
+| POST | `/admin/users` | — | Create a user (shared dev password — see note). |
 | PATCH | `/admin/users/{user_id}/role` | — | Change a user's role. |
 | PATCH | `/admin/users/{user_id}/deactivate` | — | Deactivate a user (hard-blocks with 409 if they hold devices/open requests). |
 | PATCH | `/admin/users/{user_id}/activate` | — | Reactivate a user. |
+
+**No endpoint sets or changes a user's manager.** `manager_id` is exposed as a read-only field on every user response (and joined as `manager_name` in the list), but neither `POST /admin/users` nor `PATCH /admin/users/{id}/role` (nor any other route) accepts a `manager_id` — there is currently no way to assign/reassign a user's manager via the IT-Admin API at all. A14's "Manager" column is therefore display-only; if the mockup implies an editable manager picker, that's an open gap to raise with backend, not something FE can wire today.
 
 #### `GET /admin/users`
 **Used in:** A14 Settings → Users table.
@@ -598,22 +953,36 @@ Response `data`: array of **UserListItemResponse**:
 ```
 
 #### `POST /admin/users` (201)
-**Used in:** A14 "Invite User" / "Add User" form. Note this does **not** set a password — see the Notes section below before wiring this into an "invite" flow that implies the new user can log in immediately.
-Request: `{ "name": "string", "email": "user@example.com", "role": "employee|manager|it_admin" }`
-Response `data`: **UserResponse** (`UserListItemResponse` fields minus `manager_name`).
+**Used in:** A14 "Invite User" / "Add User" form.
+Request:
+```json
+{ "name": "string", "email": "user@example.com", "role": "employee|manager|it_admin" }
+```
+Response `data`: **UserResponse** (`UserListItemResponse` fields minus `manager_name`):
+```json
+{
+  "id": "uuid", "name": "string", "email": "string", "role": "UserRole",
+  "manager_id": "uuid|null", "is_active": true, "created_at": "datetime", "updated_at": "datetime"
+}
+```
+This bare `UserResponse` shape is reused verbatim by `role`/`deactivate`/`activate` below.
+**Password behavior (corrects a previous version of this doc):** this endpoint DOES set a password — every user created here gets the same hardcoded shared dev password (`"Password123!"`, `app/services/user_service.py`), identical to the one used for all seed users. The new user CAN log in immediately with that password. This is **not** a real invite flow (no invite token, no temp/random password, no forced reset, no email sent) — it's a shared static credential. Treat "Invite User" copy carefully: don't imply an emailed/secure invite happened. Flag to backend as a security shortcut if a real per-user invite/reset flow is needed before this ships.
 
 #### `PATCH /admin/users/{user_id}/role`
 **Used in:** A14 row action "Change Role".
-Request: `{ "role": "employee|manager|it_admin" }`
-Response `data`: **UserResponse**.
+Request:
+```json
+{ "role": "employee|manager|it_admin" }
+```
+Response `data`: **UserResponse** (same bare shape as `POST /admin/users` above).
 
 #### `PATCH /admin/users/{user_id}/deactivate`
 **Used in:** A14 row action "Deactivate". Handle the `409 CONFLICT` case explicitly in the UI (message like "Cannot deactivate — user still holds N device(s)/has open requests; return devices first") rather than a generic error.
-No body. Response `data`: **UserResponse**.
+No body. Response `data`: **UserResponse** (same bare shape as `POST /admin/users` above).
 
 #### `PATCH /admin/users/{user_id}/activate`
 **Used in:** A14 row action "Activate" (shown for already-deactivated users).
-No body. Response `data`: **UserResponse**.
+No body. Response `data`: **UserResponse** (same bare shape as `POST /admin/users` above).
 
 ---
 
@@ -695,8 +1064,11 @@ Health (no auth, outside /api/v1) — infra probes, not FE
 ## Notes for FE integration
 
 - **A13 QR Management and the A14 Category-CRUD tab have no backend endpoints** — out of scope for this build. Don't wire buttons for them yet.
-- **`POST /auth/register` has no auth guard and isn't wired to any admin screen.** Confirm with backend whether FE should ever call it directly, or whether all user creation should go through `POST /admin/users` (A14) instead — the latter doesn't set a password, so a created user can't log in until that gap is resolved.
+- **`POST /auth/register` has no auth guard and isn't wired to any admin screen.** Confirm with backend whether FE should ever call it directly, or whether all user creation should go through `POST /admin/users` (A14) instead. Unlike an earlier version of this doc claimed, `POST /admin/users` **does** set a password (a shared hardcoded dev value — see the Users module note) so the created user can log in immediately; the remaining open question is whether that's acceptable for production, not whether login works at all.
+- **No login screen exists in the IT-Admin mockup.** The Auth module (`login`/`refresh`/`me`) has no A0x screen backing it in this design file — it's included here because the admin app still needs it for session bootstrap; there's simply no corresponding mock to cross-check it against.
+- **There is no API to set or change a user's manager** — `manager_id` is read-only everywhere. If A14 implies manager assignment is editable, that's a real gap, not an FE integration detail.
 - **Email/notifications are no-ops.** Places the design doc mentions "email requester" (e.g. after booking-range changes) do not actually send anything server-side yet — don't build FE copy that promises an email was sent.
-- **Handovers are peer-to-peer, not an IT action.** A12 is read-only by design; there's no reject/approve button to build there.
+- **Handovers are peer-to-peer, not an IT action.** A12 is read-only by design; there's no reject/approve button to build there. Its "Timeline" row action should hit `GET /admin/items/{item_id}/timeline`, not a (nonexistent) handover-detail endpoint.
 - **`suggested-devices` (A03) is a deterministic sort**, not ML — despite the mockup's "AI ranking" label, avoid FE copy implying machine learning.
 - **Deactivating a user (A14) hard-blocks with 409** if they hold devices or have open requests — this is intentional (deviates from a literal "just flip is_active"); build the inline error state rather than treating it as a generic failure.
+- **A02's status tab-chip counts and A09/A01's "in transit" style counters are all FE-derived** — from `meta.pagination.total_items` (one call per status) or from response-array length; there's no single aggregate-counts endpoint anywhere in this API.

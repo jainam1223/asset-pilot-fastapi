@@ -129,12 +129,16 @@ async def test_list_it_approvals_returns_only_pending_sorted_by_priority_then_ol
         requester_id=requester.id, category_id=active_category.id, status=RequestStatus.REQUESTED
     )
 
-    response = await async_client.get("/api/v1/admin/it/approvals", headers=_auth_headers(admin_token))
+    response = await async_client.get(
+        "/api/v1/admin/it/approvals", params={"page_size": 100}, headers=_auth_headers(admin_token)
+    )
     body = response.json()
     ids = [row["id"] for row in body["data"]]
 
     assert response.status_code == 200
     assert all(row["status"] == RequestStatus.PENDING_IT_APPROVAL.value for row in body["data"])
+    assert str(high.id) in ids
+    assert str(low.id) in ids
     assert ids.index(str(high.id)) < ids.index(str(low.id))
 
 

@@ -14,7 +14,7 @@ from typing import Any
 
 from app.models.device_log import DeviceLog
 from app.models.enums import ActorRole, DeviceLogEvent
-from app.repositories.device_log_repository import DeviceLogRepository
+from app.repositories.device_log_repository import DeviceLogRepository, DeviceLogRow
 
 EVENT_MILESTONE_MAP: dict[DeviceLogEvent, bool] = {
     DeviceLogEvent.DEVICE_CREATED: False,
@@ -52,6 +52,7 @@ class DeviceLogEntry:
     item_id: uuid.UUID
     event_type: DeviceLogEvent
     actor_id: uuid.UUID | None
+    actor_name: str | None
     actor_role: ActorRole
     request_id: uuid.UUID | None
     support_request_id: uuid.UUID | None
@@ -65,12 +66,13 @@ class DeviceLogEntry:
     occurred_at: datetime
 
 
-def _entry_from(log: DeviceLog) -> DeviceLogEntry:
+def _entry_from(log: DeviceLog, *, actor_name: str | None = None) -> DeviceLogEntry:
     return DeviceLogEntry(
         id=log.id,
         item_id=log.item_id,
         event_type=log.event_type,
         actor_id=log.actor_id,
+        actor_name=actor_name,
         actor_role=log.actor_role,
         request_id=log.request_id,
         support_request_id=log.support_request_id,
@@ -83,6 +85,10 @@ def _entry_from(log: DeviceLog) -> DeviceLogEntry:
         is_milestone=log.is_milestone,
         occurred_at=log.occurred_at,
     )
+
+
+def _entry_from_row(row: DeviceLogRow) -> DeviceLogEntry:
+    return _entry_from(row.device_log, actor_name=row.actor_name)
 
 
 class DeviceLogService:
@@ -125,5 +131,5 @@ class DeviceLogService:
         return _entry_from(created)
 
     async def get_timeline(self, item_id: uuid.UUID, *, milestones_only: bool) -> list[DeviceLogEntry]:
-        logs = await self.device_log_repository.list_for_item(item_id, milestones_only=milestones_only)
-        return [_entry_from(log) for log in logs]
+        rows = await self.device_log_repository.list_for_item(item_id, milestones_only=milestones_only)
+        return [_entry_from_row(row) for row in rows]

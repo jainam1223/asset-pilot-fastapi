@@ -235,7 +235,7 @@ async def test_outbound_queue_lists_eligible_requests_only(
         is_wfh=True,
     )
     already_shipped_item = await _create_item(category_id=active_category.id, status=DeviceStatus.ASSIGNED)
-    await _create_request(
+    already_shipped_request = await _create_request(
         requester_id=requester.id,
         category_id=active_category.id,
         assigned_item_id=already_shipped_item.id,
@@ -243,7 +243,7 @@ async def test_outbound_queue_lists_eligible_requests_only(
         ship_initiated_at=datetime.now(UTC),
     )
     non_wfh_item = await _create_item(category_id=active_category.id, status=DeviceStatus.ASSIGNED)
-    await _create_request(
+    non_wfh_request = await _create_request(
         requester_id=requester.id,
         category_id=active_category.id,
         assigned_item_id=non_wfh_item.id,
@@ -258,7 +258,8 @@ async def test_outbound_queue_lists_eligible_requests_only(
 
     assert response.status_code == 200
     assert str(eligible_request.id) in ids
-    assert len(ids) == 1
+    assert str(already_shipped_request.id) not in ids
+    assert str(non_wfh_request.id) not in ids
 
 
 async def test_returns_queue_lists_return_shipping_pending_items(
@@ -274,7 +275,7 @@ async def test_returns_queue_lists_return_shipping_pending_items(
         return_initiated_at=datetime.now(UTC),
     )
     still_assigned_item = await _create_item(category_id=active_category.id, status=DeviceStatus.ASSIGNED)
-    await _create_request(
+    still_assigned_request = await _create_request(
         requester_id=requester.id, category_id=active_category.id, assigned_item_id=still_assigned_item.id
     )
 
@@ -286,7 +287,7 @@ async def test_returns_queue_lists_return_shipping_pending_items(
 
     assert response.status_code == 200
     assert str(returning_request.id) in ids
-    assert len(ids) == 1
+    assert str(still_assigned_request.id) not in ids
 
 
 async def test_complete_return_completes_request_clears_owner_and_auto_closes_support(

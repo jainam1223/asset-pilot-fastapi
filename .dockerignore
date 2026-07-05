@@ -26,3 +26,6 @@ initial_setup.md
 Makefile
 docker-compose*.yml
 docker
+
+alembic
+alembic.ini
