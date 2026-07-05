@@ -101,6 +101,7 @@ class UserSummary:
 class RequestSummary:
     id: uuid.UUID
     requester_id: uuid.UUID
+    requester_name: str | None
     category_id: uuid.UUID
     assigned_item_id: uuid.UUID | None
     requested_from: datetime
@@ -161,7 +162,9 @@ class HandoverSummary:
     id: uuid.UUID
     item_id: uuid.UUID
     owner_id: uuid.UUID
+    owner_name: str | None
     borrower_id: uuid.UUID
+    borrower_name: str | None
     requested_duration_hours: int | None
     status: HandoverStatus
     requested_at: datetime
@@ -240,10 +243,11 @@ def _user_summary_from(user: User) -> UserSummary:
     )
 
 
-def _request_summary_from(request: Request) -> RequestSummary:
+def _request_summary_from(request: Request, *, requester_name: str | None) -> RequestSummary:
     return RequestSummary(
         id=request.id,
         requester_id=request.requester_id,
+        requester_name=requester_name,
         category_id=request.category_id,
         assigned_item_id=request.assigned_item_id,
         requested_from=request.requested_from,
@@ -301,12 +305,16 @@ def _support_summary_from(support: SupportRequest) -> SupportRequestSummary:
     )
 
 
-def _handover_summary_from(handover: HandoverRequest) -> HandoverSummary:
+def _handover_summary_from(
+    handover: HandoverRequest, *, owner_name: str | None, borrower_name: str | None
+) -> HandoverSummary:
     return HandoverSummary(
         id=handover.id,
         item_id=handover.item_id,
         owner_id=handover.owner_id,
+        owner_name=owner_name,
         borrower_id=handover.borrower_id,
+        borrower_name=borrower_name,
         requested_duration_hours=handover.requested_duration_hours,
         status=handover.status,
         requested_at=handover.requested_at,
@@ -465,15 +473,34 @@ class InventoryService:
         open_support = await self.support_request_repository.list_open_for_item(item.id)
         active_handover = await self.handover_request_repository.get_accepted_for_item(item.id)
 
+        request_summary = None
+        if current_request is not None:
+            requester = (
+                owner
+                if owner is not None and owner.id == current_request.requester_id
+                else await self.user_repository.get_by_id(current_request.requester_id)
+            )
+            request_summary = _request_summary_from(
+                current_request, requester_name=requester.name if requester is not None else None
+            )
+
+        handover_summary = None
+        if active_handover is not None:
+            handover_owner = await self.user_repository.get_by_id(active_handover.owner_id)
+            handover_borrower = await self.user_repository.get_by_id(active_handover.borrower_id)
+            handover_summary = _handover_summary_from(
+                active_handover,
+                owner_name=handover_owner.name if handover_owner is not None else None,
+                borrower_name=handover_borrower.name if handover_borrower is not None else None,
+            )
+
         return ItemDetail(
             item=_item_result_from(item),
             category=_category_result_from(category),
             current_owner=_user_summary_from(owner) if owner is not None else None,
-            current_request=_request_summary_from(current_request) if current_request is not None else None,
+            current_request=request_summary,
             open_support=[_support_summary_from(support) for support in open_support],
-            active_handover=(
-                _handover_summary_from(active_handover) if active_handover is not None else None
-            ),
+            active_handover=handover_summary,
         )
 
     async def _get_item_or_404(self, item_id: uuid.UUID) -> Item:

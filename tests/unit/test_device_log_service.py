@@ -11,7 +11,7 @@ import pytest
 
 from app.models.device_log import DeviceLog
 from app.models.enums import ActorRole, DeviceLogEvent
-from app.repositories.device_log_repository import DeviceLogRepository
+from app.repositories.device_log_repository import DeviceLogRepository, DeviceLogRow
 from app.services.device_log_service import EVENT_MILESTONE_MAP, DeviceLogService
 from app.utils.pagination import PaginationParams
 
@@ -23,8 +23,11 @@ class FakeDeviceLogRepository(DeviceLogRepository):
     `create`/`list_for_item` — no real session is ever touched.
     """
 
-    def __init__(self, logs: Iterable[DeviceLog] = ()) -> None:
+    def __init__(
+        self, logs: Iterable[DeviceLog] = (), actor_names: dict[uuid.UUID | None, str] | None = None
+    ) -> None:
         self._logs: list[DeviceLog] = list(logs)
+        self._actor_names = actor_names or {}
 
     async def create(self, entity: DeviceLog) -> DeviceLog:
         if entity.id is None:
@@ -36,11 +39,12 @@ class FakeDeviceLogRepository(DeviceLogRepository):
 
     async def list_for_item(
         self, item_id: uuid.UUID, *, milestones_only: bool, pagination: PaginationParams | None = None
-    ) -> list[DeviceLog]:
+    ) -> list[DeviceLogRow]:
         logs = [log for log in self._logs if log.item_id == item_id]
         if milestones_only:
             logs = [log for log in logs if log.is_milestone]
-        return sorted(logs, key=lambda log: log.occurred_at)
+        logs = sorted(logs, key=lambda log: log.occurred_at)
+        return [DeviceLogRow(device_log=log, actor_name=self._actor_names.get(log.actor_id)) for log in logs]
 
 
 _timestamp_seconds = itertools.count(1)
@@ -123,3 +127,28 @@ async def test_get_timeline_milestones_only_filters_and_orders() -> None:
         DeviceLogEvent.RETIRED,
     ]
     assert all(entry.occurred_at <= full[i + 1].occurred_at for i, entry in enumerate(full[:-1]))
+
+
+async def test_get_timeline_resolves_actor_name() -> None:
+    item_id = uuid.uuid4()
+    actor_id = uuid.uuid4()
+    repository = FakeDeviceLogRepository(actor_names={actor_id: "Arjun Mehta"})
+    service = DeviceLogService(repository)
+
+    await service.append(
+        item_id=item_id,
+        event_type=DeviceLogEvent.ASSIGNED,
+        actor_id=actor_id,
+        actor_role=ActorRole.IT_ADMIN,
+    )
+    await service.append(
+        item_id=item_id,
+        event_type=DeviceLogEvent.RETIRED,
+        actor_id=None,
+        actor_role=ActorRole.SYSTEM,
+    )
+
+    timeline = await service.get_timeline(item_id, milestones_only=False)
+
+    assert timeline[0].actor_name == "Arjun Mehta"
+    assert timeline[1].actor_name is None

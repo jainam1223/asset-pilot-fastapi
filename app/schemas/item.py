@@ -101,6 +101,7 @@ class ItemCategoryResponse(BaseModel):
 class RequestSummaryResponse(BaseModel):
     id: uuid.UUID
     requester_id: uuid.UUID
+    requester_name: str | None
     category_id: uuid.UUID
     assigned_item_id: uuid.UUID | None
     requested_from: datetime
@@ -159,7 +160,9 @@ class HandoverSummaryResponse(BaseModel):
     id: uuid.UUID
     item_id: uuid.UUID
     owner_id: uuid.UUID
+    owner_name: str | None
     borrower_id: uuid.UUID
+    borrower_name: str | None
     requested_duration_hours: int | None
     status: HandoverStatus
     requested_at: datetime

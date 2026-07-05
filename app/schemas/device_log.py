@@ -12,6 +12,7 @@ class DeviceLogEntryResponse(BaseModel):
     item_id: uuid.UUID
     event_type: DeviceLogEvent
     actor_id: uuid.UUID | None
+    actor_name: str | None
     actor_role: ActorRole
     request_id: uuid.UUID | None
     support_request_id: uuid.UUID | None

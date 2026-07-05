@@ -57,8 +57,11 @@ class RequestRepository(SQLAlchemyRepository[Request]):
     model = Request
 
     async def get_active_for_item(self, item_id: uuid.UUID) -> Request | None:
-        stmt = select(Request).where(
-            Request.assigned_item_id == item_id, Request.status == RequestStatus.ASSIGNED
+        stmt = (
+            select(Request)
+            .where(Request.assigned_item_id == item_id, Request.status == RequestStatus.ASSIGNED)
+            .order_by(Request.created_at.desc())
+            .limit(1)
         )
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()

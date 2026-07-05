@@ -5,12 +5,20 @@ Writes go through `DeviceLogService.append`, which uses the inherited
 """
 
 import uuid
+from dataclasses import dataclass
 
 from sqlalchemy import select
 
 from app.models.device_log import DeviceLog
+from app.models.user import User
 from app.repositories.base import SQLAlchemyRepository
 from app.utils.pagination import PaginationParams
+
+
+@dataclass
+class DeviceLogRow:
+    device_log: DeviceLog
+    actor_name: str | None
 
 
 class DeviceLogRepository(SQLAlchemyRepository[DeviceLog]):
@@ -22,8 +30,12 @@ class DeviceLogRepository(SQLAlchemyRepository[DeviceLog]):
         *,
         milestones_only: bool,
         pagination: PaginationParams | None = None,
-    ) -> list[DeviceLog]:
-        stmt = select(DeviceLog).where(DeviceLog.item_id == item_id)
+    ) -> list[DeviceLogRow]:
+        stmt = (
+            select(DeviceLog, User.name)
+            .outerjoin(User, DeviceLog.actor_id == User.id)
+            .where(DeviceLog.item_id == item_id)
+        )
         if milestones_only:
             stmt = stmt.where(DeviceLog.is_milestone.is_(True))
         stmt = stmt.order_by(DeviceLog.occurred_at.asc())
@@ -32,4 +44,4 @@ class DeviceLogRepository(SQLAlchemyRepository[DeviceLog]):
             stmt = stmt.offset(pagination.offset).limit(pagination.limit)
 
         result = await self.session.execute(stmt)
-        return list(result.scalars().all())
+        return [DeviceLogRow(device_log=log, actor_name=actor_name) for log, actor_name in result.all()]

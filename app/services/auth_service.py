@@ -55,7 +55,7 @@ class AuthService:
 
     async def authenticate(self, email: str, password: str) -> TokenResult:
         user = await self.user_repository.get_by_email(email)
-        if user is None or not verify_password(password, user.password_hash):
+        if user is None or user.password_hash is None or not verify_password(password, user.password_hash):
             raise UnauthorizedException(message="Invalid email or password.")
         if not user.is_active:
             raise UnauthorizedException(message="This account is inactive.")
