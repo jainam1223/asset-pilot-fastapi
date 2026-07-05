@@ -29,8 +29,6 @@ services:
       - "${PORT:-8000}:8000"
     volumes:
       - ./app:/app/app
-      - ./alembic:/app/alembic
-      - ./alembic.ini:/app/alembic.ini
       - ./tests:/app/tests
       - ./scripts:/app/scripts
       - ./pyproject.toml:/app/pyproject.toml
