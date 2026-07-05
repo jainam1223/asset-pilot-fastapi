@@ -23,7 +23,6 @@ from app.models.enums import (
     RejectedByEnum,
     RequestPriority,
     RequestStatus,
-    UserRole,
 )
 from app.models.item import Item
 from app.models.request import Request
@@ -368,8 +367,6 @@ class AssignmentService:
             raise NotFoundException(message="Employee not found.")
         if not employee.is_active:
             raise ConflictException(message="Only active employees can be assigned devices.")
-        if employee.role != UserRole.EMPLOYEE:
-            raise ValidationException(message="Only employees can be assigned devices.")
 
         request = Request(
             requester_id=employee_id,

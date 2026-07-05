@@ -446,26 +446,11 @@ async def test_direct_assign_inactive_employee_raises_conflict() -> None:
 
     with pytest.raises(ConflictException, match="Only active employees"):
         await service.direct_assign(
-            item.id, employee_id=inactive_employee.id, assigned_from=from_dt, assigned_to=to_dt, actor_id=actor_id
+            item.id,
+            employee_id=inactive_employee.id,
+            assigned_from=from_dt,
+            assigned_to=to_dt,
+            actor_id=actor_id,
         )
 
 
-async def test_direct_assign_non_employee_role_raises_validation_error() -> None:
-    item = _make_item(category_id=uuid.uuid4(), owner_type=OwnerType.CLIENT)
-    manager = User(
-        id=uuid.uuid4(),
-        name="Manager",
-        email=f"{uuid.uuid4().hex}@techcorp.internal",
-        password_hash="hash",
-        role=UserRole.MANAGER,
-        is_active=True,
-    )
-    actor_id = uuid.uuid4()
-    from_dt = _next_ts()
-    to_dt = from_dt + timedelta(days=5)
-    service, _ = _build_service(items=[item], users=[manager])
-
-    with pytest.raises(ValidationException, match="Only employees"):
-        await service.direct_assign(
-            item.id, employee_id=manager.id, assigned_from=from_dt, assigned_to=to_dt, actor_id=actor_id
-        )
