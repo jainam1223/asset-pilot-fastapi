@@ -39,6 +39,7 @@ resource "azurerm_linux_web_app" "app" {
   service_plan_id     = data.azurerm_service_plan.asp.id
 
   site_config {
+    container_registry_use_managed_identity = true
     application_stack {
       docker_image_name   = "asset-pilot-fastapi:latest"
       docker_registry_url = "https://${data.azurerm_container_registry.acr.login_server}"
