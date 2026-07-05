@@ -14,7 +14,7 @@ import pytest
 
 from app.core.exceptions import ConflictException, NotFoundException, ValidationException
 from app.models.device_log import DeviceLog
-from app.models.enums import DeviceLogEvent, DeviceStatus, OwnerType, RequestStatus
+from app.models.enums import DeviceLogEvent, DeviceStatus, OwnerType, RequestStatus, UserRole
 from app.models.item import Item
 from app.models.request import Request
 from app.models.user import User
@@ -136,6 +136,7 @@ def _make_user() -> User:
         name="Employee",
         email=f"{uuid.uuid4().hex}@techcorp.internal",
         password_hash="hash",
+        role=UserRole.EMPLOYEE,
         is_active=True,
     )
 
@@ -392,3 +393,79 @@ async def test_direct_assign_creates_client_direct_request_and_writes_client_ass
     assert log.event_type == DeviceLogEvent.CLIENT_ASSIGNED
     assert log.is_milestone is True
     assert log.request_id == result.id
+
+
+async def test_direct_assign_overlapping_dates_raises_conflict() -> None:
+    category_id = uuid.uuid4()
+    item = _make_item(category_id=category_id, owner_type=OwnerType.CLIENT)
+    employee1 = _make_user()
+    employee2 = _make_user()
+    actor_id = uuid.uuid4()
+    from_dt = _next_ts()
+    to_dt = from_dt + timedelta(days=5)
+    overlapping_from = from_dt + timedelta(days=2)
+    overlapping_to = to_dt + timedelta(days=2)
+    existing_request = _make_request(
+        category_id=category_id,
+        status=RequestStatus.ASSIGNED,
+        requester_id=employee1.id,
+        assigned_item_id=item.id,
+        assigned_from=from_dt,
+        assigned_to=to_dt,
+    )
+    service, _ = _build_service(
+        items=[item],
+        users=[employee1, employee2],
+        requests=[existing_request],
+        has_overlap=True,
+    )
+
+    with pytest.raises(ConflictException, match="overlap"):
+        await service.direct_assign(
+            item.id,
+            employee_id=employee2.id,
+            assigned_from=overlapping_from,
+            assigned_to=overlapping_to,
+            actor_id=actor_id,
+        )
+
+
+async def test_direct_assign_inactive_employee_raises_conflict() -> None:
+    item = _make_item(category_id=uuid.uuid4(), owner_type=OwnerType.CLIENT)
+    inactive_employee = User(
+        id=uuid.uuid4(),
+        name="Inactive Employee",
+        email=f"{uuid.uuid4().hex}@techcorp.internal",
+        password_hash="hash",
+        is_active=False,
+    )
+    actor_id = uuid.uuid4()
+    from_dt = _next_ts()
+    to_dt = from_dt + timedelta(days=5)
+    service, _ = _build_service(items=[item], users=[inactive_employee])
+
+    with pytest.raises(ConflictException, match="Only active employees"):
+        await service.direct_assign(
+            item.id, employee_id=inactive_employee.id, assigned_from=from_dt, assigned_to=to_dt, actor_id=actor_id
+        )
+
+
+async def test_direct_assign_non_employee_role_raises_validation_error() -> None:
+    item = _make_item(category_id=uuid.uuid4(), owner_type=OwnerType.CLIENT)
+    manager = User(
+        id=uuid.uuid4(),
+        name="Manager",
+        email=f"{uuid.uuid4().hex}@techcorp.internal",
+        password_hash="hash",
+        role=UserRole.MANAGER,
+        is_active=True,
+    )
+    actor_id = uuid.uuid4()
+    from_dt = _next_ts()
+    to_dt = from_dt + timedelta(days=5)
+    service, _ = _build_service(items=[item], users=[manager])
+
+    with pytest.raises(ValidationException, match="Only employees"):
+        await service.direct_assign(
+            item.id, employee_id=manager.id, assigned_from=from_dt, assigned_to=to_dt, actor_id=actor_id
+        )

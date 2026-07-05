@@ -23,6 +23,7 @@ from app.models.enums import (
     RejectedByEnum,
     RequestPriority,
     RequestStatus,
+    UserRole,
 )
 from app.models.item import Item
 from app.models.request import Request
@@ -355,9 +356,20 @@ class AssignmentService:
         if item.status != DeviceStatus.AVAILABLE:
             raise ConflictException(message="Only available devices can be directly assigned.")
 
+        if await self.request_repository.has_overlapping_assigned_booking(
+            item_id, assigned_from, assigned_to, exclude_request_id=None
+        ):
+            raise ConflictException(
+                message="The chosen dates overlap another active booking for this device."
+            )
+
         employee = await self.user_repository.get_by_id(employee_id)
         if employee is None:
             raise NotFoundException(message="Employee not found.")
+        if not employee.is_active:
+            raise ConflictException(message="Only active employees can be assigned devices.")
+        if employee.role != UserRole.EMPLOYEE:
+            raise ValidationException(message="Only employees can be assigned devices.")
 
         request = Request(
             requester_id=employee_id,
