@@ -3,12 +3,19 @@ booking calendar, booking-range adjustment, assign, and client direct-assign.
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 
-from pydantic import BaseModel, model_validator
+from pydantic import BaseModel, field_validator, model_validator
 
 from app.schemas.item import ItemResponse
 from app.schemas.request import RequestResponse
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Treat naive datetimes as UTC so mixed naive/aware input can't crash comparison."""
+    if value.tzinfo is None:
+        return value.replace(tzinfo=UTC)
+    return value
 
 
 class SuggestedDeviceResponse(ItemResponse):
@@ -28,6 +35,8 @@ class BookingRangeRequest(BaseModel):
     assigned_from: datetime
     assigned_to: datetime
 
+    _normalize_tz = field_validator("assigned_from", "assigned_to")(_as_utc)
+
     @model_validator(mode="after")
     def _from_before_to(self) -> "BookingRangeRequest":
         if self.assigned_from >= self.assigned_to:
@@ -41,6 +50,8 @@ class AssignRequestRequest(BaseModel):
     assigned_to: datetime
     is_wfh: bool = False
 
+    _normalize_tz = field_validator("assigned_from", "assigned_to")(_as_utc)
+
     @model_validator(mode="after")
     def _from_before_to(self) -> "AssignRequestRequest":
         if self.assigned_from >= self.assigned_to:
@@ -52,6 +63,8 @@ class DirectAssignRequest(BaseModel):
     employee_id: uuid.UUID
     assigned_from: datetime
     assigned_to: datetime
+
+    _normalize_tz = field_validator("assigned_from", "assigned_to")(_as_utc)
 
     @model_validator(mode="after")
     def _from_before_to(self) -> "DirectAssignRequest":
